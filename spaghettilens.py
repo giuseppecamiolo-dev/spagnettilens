@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_MODEL = "llama3"
 
-def get_prompt_for_action(action, code, extension):
+def get_prompt_for_action(action: str, code: str, extension: str) -> str:
     language = "Perl" if extension == ".pl" else "PHP"
     
     system_persona = f"You are a Senior Backend Engineer specializing in legacy {language} modernization."
@@ -20,15 +20,15 @@ def get_prompt_for_action(action, code, extension):
     
     return prompts.get(action, prompts["security"])
 
-def analyze_legacy_code(file_path, action, model):
+def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
     path = Path(file_path)
     if not path.is_file():
-        print(f"Errore: Il file {file_path} non esiste.")
+        print(f"Errore: Il file {file_path} non esiste.", file=sys.stderr)
         sys.exit(1)
 
     # Validate model name to prevent command injection
     if not re.match(r'^[\w.-]+$', model):
-        print(f"Errore: Nome modello non valido: {model}")
+        print(f"Errore: Nome modello non valido: {model}", file=sys.stderr)
         sys.exit(1)
 
     # Handle legacy encodings gracefully
@@ -37,7 +37,7 @@ def analyze_legacy_code(file_path, action, model):
 
     print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite Foundry...")
     
-    ps_command = f"foundry run {model}" 
+    ps_command = f"$input | foundry run {model}"
     
     # Prefer pwsh.exe (PowerShell Core) if available, otherwise powershell.exe
     ps_executable = "pwsh.exe" if shutil.which("pwsh.exe") else "powershell.exe"
@@ -57,7 +57,7 @@ def analyze_legacy_code(file_path, action, model):
         stdout, stderr = process.communicate(input=prompt)
         
         if process.returncode != 0:
-            print(f"\n[!] Errore da {ps_executable}: {stderr}")
+            print(f"\n[!] Errore da {ps_executable}: {stderr}", file=sys.stderr)
             sys.exit(1)
 
         print("\n" + "="*50 + "\n")
@@ -65,9 +65,9 @@ def analyze_legacy_code(file_path, action, model):
         print("\n" + "="*50 + "\n")
         
     except FileNotFoundError:
-        print(f"\n[!] Impossibile trovare {ps_executable}. Assicurati di eseguire lo script in WSL su Windows o che PowerShell sia nel PATH.")
+        print(f"\n[!] Impossibile trovare {ps_executable}. Assicurati di eseguire lo script in WSL su Windows o che PowerShell sia nel PATH.", file=sys.stderr)
     except Exception as e:
-        print(f"\n[!] Errore imprevisto: {e}")
+        print(f"\n[!] Errore imprevisto: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via PowerShell interop")
