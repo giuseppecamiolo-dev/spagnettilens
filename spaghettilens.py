@@ -37,7 +37,7 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
 
     print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite Foundry...")
     
-    ps_command = f"$input | foundry run {model}"
+    ps_command = f"foundry run {model}"
     
     # Prefer pwsh.exe (PowerShell Core) if available, otherwise powershell.exe
     ps_executable = "pwsh.exe" if shutil.which("pwsh.exe") else "powershell.exe"
