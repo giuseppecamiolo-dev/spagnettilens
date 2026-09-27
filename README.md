@@ -1,12 +1,12 @@
-# SpaghettiLens-AI 🔍 
+# SpaghettiLens-AI 🔍
 
 **AI-Powered Legacy Code Analyzer via WSL-PowerShell Interoperability**
 
 SpaghettiLens-AI is a CLI tool designed for Senior Backend Engineers tasked with modernizing legacy codebases (Perl, PHP procedural). It leverages local Large Language Models (LLMs) to automatically document, secure, and refactor aging scripts without sending proprietary company code to third-party cloud APIs (like OpenAI).
 
-By exploiting the seamless interoperability between **Windows 11 WSL2** and the native **PowerShell** environment, this tool runs the Python orchestration layer in a Unix environment while delegating the heavy AI inference to the Windows host. It supports multiple inference backends:
-1. **Foundry** (Local model runner) passing data securely via `stdin` piping.
-2. **npurun** (NPU-first local LLM runtime for Snapdragon X-series Windows-on-ARM laptops) for highly efficient on-device AI.
+By exploiting the seamless interoperability between Windows 11 WSL2 and the native PowerShell environment, this tool runs the Python orchestration layer in a Unix environment while delegating the heavy AI inference to the Windows host. It supports multiple inference backends:
+*   **Foundry** (Local model runner) passing data securely via `stdin` piping.
+*   **npurun** (NPU-first local LLM runtime for Snapdragon X-series Windows-on-ARM laptops) for highly efficient on-device AI.
 
 ## 🚀 Key Features
 
@@ -21,28 +21,27 @@ By exploiting the seamless interoperability between **Windows 11 WSL2** and the 
 
 *   **Core:** Python 3 (CLI, Subprocess Orchestration)
 *   **Host Environment:** Windows 11 + WSL2 (Debian/Ubuntu)
-*   **AI Engine:** Local LLMs via [Foundry](https://github.com/foundry-rs/foundry) or [npurun](https://github.com/bpbonker/npurun) (e.g. Qwen2.5, Llama 3, Mistral)
+*   **AI Engine:** Local LLMs via Foundry or npurun (e.g., Qwen2.5, Llama 3, Mistral)
 *   **Target Languages:** Perl (CGI, DB_File, GTK), PHP (Legacy Procedural).
 
 ## 📜 Scripts Overview
 
 The repository provides two distinct Python scripts depending on your chosen AI backend:
 
-1. **`spaghettilens.py`** 
-   - Uses **Foundry** as the backend.
-   - Passes the source code to the LLM via standard input (`stdin`) piping.
-   - Ideal for general-purpose CPU/GPU setups.
-   
-2. **`spaghettilensNPU.py`**
-   - Uses **npurun** as the backend.
-   - Leverages the Snapdragon X-series NPU for accelerated, low-power inference.
-   - Passes the source code dynamically as a PowerShell trailing argument, which is required by the `npurun` CLI architecture.
+**`spaghettilens.py`**
+*   Uses Foundry as the backend.
+*   Passes the source code to the LLM via standard input (`stdin`) piping.
+*   Ideal for general-purpose CPU/GPU setups.
+
+**`spaghettilensNPU.py`**
+*   Uses npurun as the backend.
+*   Leverages the Snapdragon X-series NPU for accelerated, low-power inference.
+*   Passes the source code dynamically as a PowerShell trailing argument, which is required by the npurun CLI architecture.
 
 ## 📦 Installation & Setup
 
 1. Ensure you have Windows 11 with WSL2 enabled and a local LLM engine (Foundry or npurun) accessible via PowerShell.
 2. Clone this repository into your WSL environment:
    ```bash
-   git clone https://github.com/yourusername/spaghettilens.git
-   cd spaghettilens
-   ```
+   git clone [https://github.com/giuseppecamiolo-dev/spaghettilens.git](https://github.com/giuseppecamiolo-dev/spaghettilens.git)
+   cd spaghettilens``
