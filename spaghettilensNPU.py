@@ -75,7 +75,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via PowerShell interop")
     parser.add_argument("file", help="Percorso del file legacy da analizzare")
     parser.add_argument("--action", choices=["document", "security", "refactor"], default="security")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in Foundry")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in npurun")
     
     args = parser.parse_args()
     
