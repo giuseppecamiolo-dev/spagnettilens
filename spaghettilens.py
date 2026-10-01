@@ -35,7 +35,7 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
     code = path.read_text(encoding="utf-8", errors="replace")
     prompt = get_prompt_for_action(action, code, path.suffix)
 
-    print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite Foundry...")
+    print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite npurun...")
     
     ps_command = f"foundry run {model}"
     
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via PowerShell interop")
     parser.add_argument("file", help="Percorso del file legacy da analizzare")
     parser.add_argument("--action", choices=["document", "security", "refactor"], default="security")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in Foundry")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in npurun")
     
     args = parser.parse_args()
     
