@@ -5,6 +5,7 @@ import re
 import shutil
 import os
 import tempfile
+import shlex
 from pathlib import Path
 
 DEFAULT_MODEL = "llama3"
@@ -37,7 +38,10 @@ def edit_prompt_manually(prompt: str) -> str:
             tf_path = tf.name
 
         editor = os.environ.get('EDITOR', 'nano')
-        os.system(f"{editor} {tf_path}")
+        editor_cmd = shlex.split(editor)
+        if not editor_cmd:
+            editor_cmd = ['nano']
+        subprocess.run(editor_cmd + [tf_path])
 
         with open(tf_path, 'r') as tf:
             prompt = tf.read()
