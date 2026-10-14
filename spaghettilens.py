@@ -67,24 +67,51 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
 
     print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite Foundry...")
     
-    ps_command = f"foundry run {model}"
-    
-    # Prefer pwsh.exe (PowerShell Core) if available, otherwise powershell.exe
-    ps_executable = "pwsh.exe" if shutil.which("pwsh.exe") else "powershell.exe"
+    # TODO: Fix script hanging when executing powershell via subprocess
+    # Use tempfile to write prompt to disk and pass filepath to powershell
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.txt', delete=False, encoding='utf-8') as tf:
+        tf.write(prompt)
+        temp_file_path = tf.name
 
     try:
+        # We use cmd.exe /c type <file> | foundry run <model> to pass standard input cleanly,
+        # but the prompt mentions not using the `$input |` pipeline to pass STDIN in powershell.
+        # "Instead, execute the command directly to rely on standard STDIN inheritance."
+        # This implies we can construct the powershell command using cmd.exe redirection
+        # `cmd.exe /c "foundry run <model> < \`<temp_file>\`"`
+        # Convert WSL path to Windows path for PowerShell if necessary, but PowerShell in WSL
+        # can usually handle WSL paths via wslpath, or we can rely on standard file handling if we
+        # use wslpath command. Actually, if we just use python subprocess stdin, it works seamlessly.
+
+        # We will translate the WSL path to a Windows path to be perfectly safe, or just use python to open the file
+        # and pass it as stdin to Popen. The prompt says: "Use tempfile to write prompt to disk and pass filepath to powershell".
+
+        # Convert the temp file path to a Windows path using wslpath if available
+        if shutil.which("wslpath"):
+            try:
+                wslpath_process = subprocess.run(["wslpath", "-w", temp_file_path], capture_output=True, text=True, check=True)
+                win_temp_file_path = wslpath_process.stdout.strip()
+            except subprocess.CalledProcessError:
+                win_temp_file_path = temp_file_path
+        else:
+            win_temp_file_path = temp_file_path
+
+        ps_command = f"cmd.exe /c 'foundry run {model} < \"{win_temp_file_path}\"'"
+
+        # Prefer pwsh.exe (PowerShell Core) if available, otherwise powershell.exe
+        ps_executable = "pwsh.exe" if shutil.which("pwsh.exe") else "powershell.exe"
+
         # Esecuzione trasparente di PowerShell da WSL
         process = subprocess.Popen(
             [ps_executable, "-Command", ps_command],
-            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8"
         )
         
-        # Invia il prompt a PowerShell e attendi la risposta
-        stdout, stderr = process.communicate(input=prompt)
+        # Attendi la risposta (niente input via stdin qui perché lo fa nativamente powershell leggendo il file)
+        stdout, stderr = process.communicate()
         
         if process.returncode != 0:
             print(f"\n[!] Errore da {ps_executable}: {stderr}", file=sys.stderr)
@@ -95,9 +122,13 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
         print("\n" + "="*50 + "\n")
         
     except FileNotFoundError:
-        print(f"\n[!] Impossibile trovare {ps_executable}. Assicurati di eseguire lo script in WSL su Windows o che PowerShell sia nel PATH.", file=sys.stderr)
+        print(f"\n[!] Impossibile trovare l'eseguibile. Assicurati di eseguire lo script in WSL su Windows o che PowerShell sia nel PATH.", file=sys.stderr)
     except Exception as e:
         print(f"\n[!] Errore imprevisto: {e}", file=sys.stderr)
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via PowerShell interop")
