@@ -1,4 +1,4 @@
-# SpaghettiLens-AI 🔍
+# spaghettilens 🔍
 
 **AI-Powered Legacy Code Analyzer via WSL-PowerShell Interoperability**
 
