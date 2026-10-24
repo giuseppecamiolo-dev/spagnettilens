@@ -81,11 +81,12 @@ def build_dependency_graph(
         findings.append("SECURITY: Hardcoded database password in source file")
 
     # 4. Embedded SQL statements & referenced tables
+    # Group 1 captures the opening quote (" or '), and \1 ensures we match up to the matching closing quote
     sql_pattern = re.compile(
-        r"([\"']\s*(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b.*?[\"'])",
+        r"""(["'])\s*((?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b.*?)\1""",
         re.IGNORECASE | re.DOTALL,
     )
-    queries = [re.sub(r"\s+", " ", q.strip("\"' \n\t")) for q in sql_pattern.findall(code)]
+    queries = [re.sub(r"\s+", " ", match.group(2).strip()) for match in sql_pattern.finditer(code)]
 
     tables: set[str] = set()
     table_regex = re.compile(
