@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.providers import create_provider
+from core.schema_graph import build_dependency_graph
 
 DEFAULT_MODEL = "llama3"
 
@@ -52,7 +53,6 @@ def edit_prompt_manually(prompt: str) -> str:
         os.remove(tf_path)
     return prompt
 
-
 def analyze_legacy_code(
     file_path: str,
     action: str,
@@ -60,6 +60,7 @@ def analyze_legacy_code(
     provider_name: str = "foundry",
     interactive: bool = True,
     schema_path: Optional[str] = None,
+    dump_graph_only: bool = False,
 ) -> None:
     path = Path(file_path)
     if not path.is_file():
@@ -71,18 +72,33 @@ def analyze_legacy_code(
         sys.exit(1)
 
     code = path.read_text(encoding="utf-8", errors="replace")
-    prompt = get_prompt_for_action(action, code, path.suffix)
 
+    schema_sql: Optional[str] = None
     if schema_path:
         s_path = Path(schema_path)
         if s_path.is_file():
             schema_sql = s_path.read_text(encoding="utf-8", errors="replace")
-            prompt += f"\n\nRelational Database Schema (SQL):\n{schema_sql}"
+
+    # Build deterministic static dependency & invariant graph
+    dep_graph = build_dependency_graph(code, str(path), schema_sql=schema_sql)
+
+    if dump_graph_only:
+        print(dep_graph.to_json())
+        return
+
+    prompt = get_prompt_for_action(action, code, path.suffix)
+    prompt += f"\n\nStatic Dependency & Invariant Graph (JSON):\n{dep_graph.to_json()}"
+
+    if schema_sql:
+        prompt += f"\n\nRelational Database Schema (SQL):\n{schema_sql}"
 
     if interactive:
         prompt = edit_prompt_manually(prompt)
 
-    print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite {provider_name.upper()} ({model})...")
+    print(
+        f"[*] Analisi del file {path.name} (Azione: {action.upper()}) "
+        f"tramite {provider_name.upper()} ({model})..."
+    )
 
     try:
         provider = create_provider(provider_name, model)
@@ -100,7 +116,6 @@ def analyze_legacy_code(
     except Exception as e:
         print(f"\n[!] Errore durante l'inferenza: {e}", file=sys.stderr)
         sys.exit(1)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -121,6 +136,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Salta la conferma interattiva dell'editor (utile per pipeline agentiche)",
     )
+    parser.add_argument("--dump-graph", action="store_true", help="Estrae e stampa solo il grafo statico JSON senza invocare l'LLM")
 
     args = parser.parse_args()
 
