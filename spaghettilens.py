@@ -11,8 +11,7 @@ from typing import Optional
 from core.providers import create_provider
 from core.schema_graph import build_dependency_graph
 
-DEFAULT_MODEL = "llama3"
-
+DEFAULT_MODEL = "qwen2.5-coder-0.5b"
 
 def get_prompt_for_action(action: str, code: str, extension: str) -> str:
     language = "Perl" if extension == ".pl" else "PHP"
