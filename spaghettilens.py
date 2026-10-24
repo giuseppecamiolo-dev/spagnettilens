@@ -147,4 +147,5 @@ if __name__ == "__main__":
         provider_name=args.provider,
         interactive=not args.no_interactive,
         schema_path=args.schema,
+        dump_graph_only=args.dump_graph,
     )
