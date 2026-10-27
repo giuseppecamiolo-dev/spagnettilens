@@ -8,3 +8,4 @@ lib/
 *.bak
 *_old
 .env
+out.txt
