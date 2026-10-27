@@ -10,8 +10,10 @@ from typing import Optional
 
 from core.providers import create_provider
 from core.schema_graph import build_dependency_graph
+from core.strangler_agent import StranglerAgent
 
 DEFAULT_MODEL = "qwen2.5-coder-0.5b"
+
 
 def get_prompt_for_action(action: str, code: str, extension: str) -> str:
     language = "Perl" if extension == ".pl" else "PHP"
@@ -52,6 +54,7 @@ def edit_prompt_manually(prompt: str) -> str:
         os.remove(tf_path)
     return prompt
 
+
 def analyze_legacy_code(
     file_path: str,
     action: str,
@@ -60,6 +63,8 @@ def analyze_legacy_code(
     interactive: bool = True,
     schema_path: Optional[str] = None,
     dump_graph_only: bool = False,
+    agent_mode: bool = False,
+    max_retries: int = 3,
 ) -> None:
     path = Path(file_path)
     if not path.is_file():
@@ -78,29 +83,55 @@ def analyze_legacy_code(
         if s_path.is_file():
             schema_sql = s_path.read_text(encoding="utf-8", errors="replace")
 
-    # Build deterministic static dependency & invariant graph
     dep_graph = build_dependency_graph(code, str(path), schema_sql=schema_sql)
 
     if dump_graph_only:
         print(dep_graph.to_json())
         return
 
-    prompt = get_prompt_for_action(action, code, path.suffix)
-    prompt += f"\n\nStatic Dependency & Invariant Graph (JSON):\n{dep_graph.to_json()}"
-
-    if schema_sql:
-        prompt += f"\n\nRelational Database Schema (SQL):\n{schema_sql}"
-
-    if interactive:
-        prompt = edit_prompt_manually(prompt)
-
-    print(
-        f"[*] Analisi del file {path.name} (Azione: {action.upper()}) "
-        f"tramite {provider_name.upper()} ({model})..."
-    )
-
     try:
         provider = create_provider(provider_name, model)
+
+        if agent_mode:
+            print(
+                f"[*] Avvio StranglerAgent su {path.name} tramite {provider_name.upper()} ({model}) "
+                f"[max_retries={max_retries}]..."
+            )
+            agent = StranglerAgent(provider=provider, max_retries=max_retries)
+            report = agent.run(code, str(path), schema_sql=schema_sql)
+
+            for attempt in report.attempts:
+                status = "PASSED" if attempt.sandbox_result.passed else "FAILED"
+                print(f"  -> Iterazione {attempt.iteration}: Sandbox {status}")
+                for err in attempt.sandbox_result.errors:
+                    print(f"     [!] {err}")
+
+            print("\n" + "=" * 50 + "\n")
+            print(report.final_code)
+            print("\n" + "=" * 50 + "\n")
+
+            if not report.success:
+                print(
+                    f"[!] L'agente non ha superato tutte le verifiche della sandbox dopo {report.iterations_used} tentativi.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            return
+
+        prompt = get_prompt_for_action(action, code, path.suffix)
+        prompt += f"\n\nStatic Dependency & Invariant Graph (JSON):\n{dep_graph.to_json()}"
+
+        if schema_sql:
+            prompt += f"\n\nRelational Database Schema (SQL):\n{schema_sql}"
+
+        if interactive:
+            prompt = edit_prompt_manually(prompt)
+
+        print(
+            f"[*] Analisi del file {path.name} (Azione: {action.upper()}) "
+            f"tramite {provider_name.upper()} ({model})..."
+        )
+
         print("\n" + "=" * 50 + "\n")
         for token in provider.stream(prompt):
             sys.stdout.write(token)
@@ -115,6 +146,7 @@ def analyze_legacy_code(
     except Exception as e:
         print(f"\n[!] Errore durante l'inferenza: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -135,7 +167,22 @@ if __name__ == "__main__":
         action="store_true",
         help="Salta la conferma interattiva dell'editor (utile per pipeline agentiche)",
     )
-    parser.add_argument("--dump-graph", action="store_true", help="Estrae e stampa solo il grafo statico JSON senza invocare l'LLM")
+    parser.add_argument(
+        "--dump-graph",
+        action="store_true",
+        help="Estrae e stampa solo il grafo statico JSON senza invocare l'LLM",
+    )
+    parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Attiva il loop StranglerAgent con verifica deterministica in sandbox e self-healing",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Numero massimo di tentativi di self-healing in modalità --agent (default: 3)",
+    )
 
     args = parser.parse_args()
 
@@ -147,4 +194,6 @@ if __name__ == "__main__":
         interactive=not args.no_interactive,
         schema_path=args.schema,
         dump_graph_only=args.dump_graph,
+        agent_mode=args.agent,
+        max_retries=args.max_retries,
     )
