@@ -104,6 +104,18 @@ class FoundryInteropProvider(LLMProvider):
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+NPURUN_LOG_LINE_RE = re.compile(
+    r"^.*?\bINFO\s+(?:npurun_core::engine|qnn::genie):.*$",
+    re.MULTILINE,
+)
+
+
+def clean_npurun_output(raw_text: str) -> str:
+    text = ANSI_ESCAPE_RE.sub("", raw_text)
+    text = NPURUN_LOG_LINE_RE.sub("", text)
+    return text.strip()
+
 
 class NpuRunInteropProvider(LLMProvider):
     """
@@ -129,8 +141,7 @@ class NpuRunInteropProvider(LLMProvider):
         stdout, stderr = process.communicate(input=full_prompt)
         if process.returncode != 0:
             raise RuntimeError(f"Errore da {ps_executable}: {stderr.strip()}")
-        yield stdout
-
+        yield clean_npurun_output(stdout)
 
 class OllamaCLIProvider(LLMProvider):
     """Executes `ollama run <model>` directly inside WSL via subprocess."""

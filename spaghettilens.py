@@ -11,6 +11,8 @@ from typing import Optional
 from core.providers import create_provider
 from core.schema_graph import build_dependency_graph
 from core.strangler_agent import StranglerAgent
+#smolagents itegrations
+from core.smol_hierarchy import build_spaghettilens_smol_hierarchy
 
 DEFAULT_MODEL = "qwen2.5-coder-0.5b"
 
@@ -64,6 +66,7 @@ def analyze_legacy_code(
     schema_path: Optional[str] = None,
     dump_graph_only: bool = False,
     agent_mode: bool = False,
+    smolagents_mode: bool = False,
     max_retries: int = 3,
 ) -> None:
     path = Path(file_path)
@@ -91,6 +94,30 @@ def analyze_legacy_code(
 
     try:
         provider = create_provider(provider_name, model)
+
+        if smolagents_mode:
+            print(
+                f"[*] Avvio Gerarchia Multi-Livello smolagents (Supervisor -> L1 -> L2) su {path.name} "
+                f"tramite {provider_name.upper()} ({model}) [max_retries={max_retries}]..."
+            )
+            supervisor = build_spaghettilens_smol_hierarchy(
+                provider=provider,
+                model_name=model,
+                max_retries=max_retries,
+                default_file_path=file_path,
+                default_schema_path=schema_path or "",
+            )
+            task = (
+                f"Modernize legacy file source: '{file_path}' (SQL schema file: '{schema_path or ''}'). "
+                "1. First, call `discovery_lead` to get the audit and dependency graph. "
+                "2. Second, call `modernization_lead` to execute the Strangler refactoring and verify it in the sandbox. "
+                "Do not loop back to discovery."
+            )
+            result = supervisor.run(task)
+            print("\n" + "=" * 50 + "\n")
+            print(result)
+            print("\n" + "=" * 50 + "\n")
+            return
 
         if agent_mode:
             print(
@@ -173,6 +200,11 @@ if __name__ == "__main__":
         help="Estrae e stampa solo il grafo statico JSON senza invocare l'LLM",
     )
     parser.add_argument(
+        "--smolagents",
+        action="store_true",
+        help="Attiva la gerarchia CodeAgent a 3 livelli (huggingface/smolagents PR #3115)",
+    )
+    parser.add_argument(
         "--agent",
         action="store_true",
         help="Attiva il loop StranglerAgent con verifica deterministica in sandbox e self-healing",
@@ -194,6 +226,7 @@ if __name__ == "__main__":
         interactive=not args.no_interactive,
         schema_path=args.schema,
         dump_graph_only=args.dump_graph,
+        smolagents_mode=args.smolagents,
         agent_mode=args.agent,
         max_retries=args.max_retries,
     )
