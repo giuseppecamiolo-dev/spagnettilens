@@ -634,6 +634,19 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
+    # Ensure Level 2 sub-agent capabilities are propagated to Level 1 descriptions
+    # even when running against upstream PyPI smolagents without PR #3115 merged yet.
+    for lead in supervisor.managed_agents.values():
+        if getattr(lead, "managed_agents", None):
+            sub_desc = "\n".join(
+                f"  - {k}: {v.description}" for k, v in lead.managed_agents.items()
+            )
+            delegation_note = (
+                f"\n\nThis agent can internally delegate to the following sub-agents:\n{sub_desc}"
+            )
+            if delegation_note not in lead.description:
+                lead.description += delegation_note
+
     return supervisor
 
 

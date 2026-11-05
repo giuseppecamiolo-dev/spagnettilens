@@ -22,6 +22,7 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 3. **Deterministic Verification Sandbox (`core/sandbox_runner.py`)**: Validates generated Python/FastAPI code via AST parsing (`ast.parse`), bytecode compilation, SQL parameterization checks, financial `Decimal` enforcement, and ephemeral SQLite schema execution.
 4. **Autonomous Self-Healing Agent (`core/strangler_agent.py`)**: Orchestrates multi-turn refactoring (`--agent`) that automatically feeds deterministic sandbox failures back into the LLM until all syntax, security, and financial invariants pass.
 5. **3-Level `smolagents` Hierarchical Orchestration (`core/smol_hierarchy.py`)**: Implements a multi-tier `CodeAgent` hierarchy (`--smolagents`) with custom NPU-optimized Jinja2 prompt templates, sliding-window context management, truncated-generation guards, and AST-level `<code>...</code>` sanitization so compact 4B local NPU models execute deterministic multi-agent pipelines without syntax loops or tool-shadowing failures.
+
 ---
 
 ## 🏗️ System Architecture
@@ -59,6 +60,8 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 |  • LEDGER_INVARIANT (`decimal.Decimal`) Verification + Ephemeral SQLite |
 |  * If checks fail -> Feeds structured error report back to Agent        |
 +-------------------------------------------------------------------------+
+```
+
 ### 2. 3-Level `smolagents` CodeAgent Hierarchy (`--smolagents`)
 Powered by `core/smol_hierarchy.py`, serving as a production edge-NPU testbed and reference architecture for upstream [`huggingface/smolagents`](https://github.com/huggingface/smolagents) contributions:
 
@@ -92,78 +95,116 @@ Powered by `core/smol_hierarchy.py`, serving as a production edge-NPU testbed an
 |   dependency_   | |   ledger_       |
 |   graph         | |   invariants    |
 +-----------------+ +-----------------+
-🚀 Quick Start & Usage
-1. 3-Level smolagents Hierarchical Mode (--smolagents)
+```
+
+---
+
+## 📦 Installation
+
+Requires **Python 3.11+** and [`smolagents`](https://github.com/huggingface/smolagents):
+
+```bash
+pip install smolagents pytest
+```
+
+---
+
+## 🚀 Quick Start & Usage
+
+### 1. 3-Level `smolagents` Hierarchical Mode (`--smolagents`)
 Run the strict, multi-agent orchestrator using local Snapdragon NPU hardware acceleration (optimized to eliminate hallucinations on 4B models):
 
-Bash
+```bash
 python3 spaghettilens.py spaghettiCode.php \
   --schema fixtures/schema.sql \
   --provider npu \
   --model qwen3-4b-instruct-2507 \
   --smolagents \
   --max-retries 3
-2. Autonomous Self-Healing Agent Mode (--agent)
+```
+
+### 2. Autonomous Self-Healing Agent Mode (`--agent`)
 Run the standard self-healing loop on legacy code using a local NPU:
 
-Bash
+```bash
 python3 spaghettilens.py spaghettiCode.php \
   --schema fixtures/schema.sql \
   --provider npu \
   --model qwen3-4b-instruct-2507 \
   --agent \
   --max-retries 3
-Or with local Ollama (llama3) or Cloud SSE Providers (meta, baseten, fireworks, modal, openai):
+```
 
-Bash
+Or with local Ollama (`llama3`) or Cloud SSE Providers (`meta`, `baseten`, `fireworks`, `modal`, `openai`):
+
+```bash
 python3 spaghettilens.py spaghettiCode.pl \
   --schema fixtures/schema.sql \
   --provider ollama \
   --model llama3 \
   --agent \
   --max-retries 3
-3. Inspect the Deterministic Dependency Graph (--dump-graph)
+```
+
+### 3. Inspect the Deterministic Dependency Graph (`--dump-graph`)
 Extract the JSON dependency and invariant graph without invoking any LLM:
 
-Bash
+```bash
 python3 spaghettilens.py spaghettiCode.pl --schema fixtures/schema.sql --dump-graph
-4. Interactive CLI Modes (security, refactor, document)
-Bash
+```
+
+### 4. Interactive CLI Modes (`security`, `refactor`, `document`)
+```bash
 python3 spaghettilens.py spaghettiCode.php \
   --action security \
   --schema fixtures/schema.sql \
   --provider foundry \
   --model llama3
-🧪 Automated Test Suite & CI
-Run the full offline unit test suite (36 tests covering local/cloud providers, static schema graph extraction, sandbox verification, self-healing agent loops, and the 3-level smolagents hierarchy)[cite: 7]:
+```
 
-Bash
+---
+
+## 🧪 Automated Test Suite & CI
+
+Run the full offline unit test suite (36 tests covering local/cloud providers, static schema graph extraction, sandbox verification, self-healing agent loops, and the 3-level `smolagents` hierarchy):
+
+```bash
 python3 -m pytest -v
-📂 Repository Structure
-Plaintext
+```
+
+---
+
+## 📂 Repository Structure
+
+```text
 spaghettilens-ai/
-├── .github/workflows/ci.yml      # GitHub Actions CI pipeline
+├── .github/workflows/ci.yml       # GitHub Actions CI pipeline (Ubuntu 24.04, Python 3.11)
 ├── core/
 │   ├── __init__.py
-│   ├── providers.py              # Unified multi-provider streaming abstraction
-│   ├── schema_graph.py           # Static SQL/AST & financial invariant extractor
-│   ├── sandbox_runner.py         # Deterministic AST, SQLi, Decimal & SQLite verifier
-│   ├── strangler_agent.py        # Autonomous self-healing refactoring orchestrator
-│   └── smol_hierarchy.py         # 3-level smolagents CodeAgent hierarchy & NPU adapter
+│   ├── providers.py               # Unified multi-provider streaming abstraction
+│   ├── schema_graph.py            # Static SQL/AST & financial invariant extractor
+│   ├── sandbox_runner.py          # Deterministic AST, SQLi, Decimal & SQLite verifier
+│   ├── strangler_agent.py         # Autonomous self-healing refactoring orchestrator
+│   └── smol_hierarchy.py          # 3-level smolagents CodeAgent hierarchy & NPU adapter
 ├── fixtures/
-│   └── schema.sql                # Relational DDL test schema (invoices & enrollments)
+│   └── schema.sql                 # Relational DDL test schema (invoices & enrollments)
 ├── tests/
-│   ├── test_providers.py         # Unit tests for local & cloud SSE providers
-│   ├── test_schema_graph.py      # Unit tests for static Perl/PHP/SQL graph engine
-│   ├── test_strangler_agent.py   # Unit tests for SandboxRunner & self-healing loop
-│   ├── test_smol_hierarchy.py    # Unit tests for 3-level smolagents hierarchy & sanitizer
-│   ├── test_spaghettilens.py     # Unit tests for main CLI orchestrator
-│   ├── test_spaghettilensNPU.py  # Unit tests for NPU wrapper
-│   └── test_spaghettilensOllam.py# Unit tests for Ollama wrapper
-├── spaghettilens.py              # Primary unified CLI entry point
-├── spaghettilensNPU.py           # Dedicated Snapdragon NPU CLI module
-├── spaghettilensOllam.py         # Dedicated Ollama HTTP CLI module
-├── spaghettiCode.pl              # Legacy Perl CGI/DBI invoice fixture
-└── spaghettiCode.php             # Legacy PHP course enrollment fixture
-📜 License
+│   ├── test_providers.py          # Unit tests for local & cloud SSE providers
+│   ├── test_schema_graph.py       # Unit tests for static Perl/PHP/SQL graph engine
+│   ├── test_strangler_agent.py    # Unit tests for SandboxRunner & self-healing loop
+│   ├── test_smol_hierarchy.py     # Unit tests for 3-level smolagents hierarchy & sanitizer
+│   ├── test_spaghettilens.py      # Unit tests for main CLI orchestrator
+│   ├── test_spaghettilensNPU.py   # Unit tests for NPU wrapper
+│   └── test_spaghettilensOllam.py # Unit tests for Ollama wrapper
+├── spaghettilens.py               # Primary unified CLI entry point
+├── spaghettilensNPU.py            # Dedicated Snapdragon NPU CLI module
+├── spaghettilensOllam.py          # Dedicated Ollama HTTP CLI module
+├── spaghettiCode.pl               # Legacy Perl CGI/DBI invoice fixture
+└── spaghettiCode.php              # Legacy PHP course enrollment fixture
+```
+
+---
+
+## 📜 License
+
 Distributed under the MIT License. Created by Giuseppe Camiolo.
