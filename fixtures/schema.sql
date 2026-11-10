@@ -17,9 +17,9 @@ CREATE TABLE IF NOT EXISTS enrollments (
 
 -- Seed test rows including decimal edge cases (0.10 + 0.20) for parity verification
 INSERT INTO invoices (id, student_code, description, amount, status) VALUES
-    (101, 'STU-2026-01', 'Quota Iscrizione Annuale', 120.10, 'pending'),
-    (102, 'STU-2026-01', 'Modulo Conversazione B2', 250.20, 'pending'),
-    (103, 'STU-2026-01', 'Materiale Didattico (Pagato)', 45.00, 'paid');
+    (101, 'STU-2026-01', 'Annual Registration Fee', 120.10, 'pending'),
+    (102, 'STU-2026-01', 'Conversation Module B2', 250.20, 'pending'),
+    (103, 'STU-2026-01', 'Course Materials (Paid)', 45.00, 'paid');
 
 INSERT INTO enrollments (id, student_id, course_name, booking_date) VALUES
     (1, 42, 'IELTS Preparation Intensive', '2026-10-01'),

@@ -26,8 +26,8 @@ class StranglerReport:
 
 class StranglerAgent:
     """
-    Agente Neuro-Simbolico che esegue il refactoring di codice legacy (Perl/PHP)
-    in Python moderno (FastAPI/Pydantic) con verifica deterministica in sandbox e self-healing.
+    Neuro-symbolic agent that refactors legacy code (Perl/PHP) into modern Python
+    (FastAPI/Pydantic) with deterministic sandbox verification and self-healing.
     """
 
     def __init__(self, provider: LLMProvider, max_retries: int = 3) -> None:

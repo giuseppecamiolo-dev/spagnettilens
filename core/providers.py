@@ -28,7 +28,7 @@ DEFAULT_MODELS: Dict[str, str] = {
 
 def validate_model_name(model: str) -> None:
     if not MODEL_NAME_REGEX.match(model):
-        raise ValueError(f"Nome modello non valido: {model}")
+        raise ValueError(f"Invalid model name: {model}")
 
 
 @dataclass
@@ -98,7 +98,7 @@ class FoundryInteropProvider(LLMProvider):
             )
             stdout, stderr = process.communicate()
             if process.returncode != 0:
-                raise RuntimeError(f"Errore da {ps_executable}: {stderr.strip()}")
+                raise RuntimeError(f"Error from {ps_executable}: {stderr.strip()}")
             yield stdout
         finally:
             if os.path.exists(temp_file_path):
@@ -140,7 +140,7 @@ class NpuRunInteropProvider(LLMProvider):
         )
         stdout, stderr = process.communicate(input=full_prompt)
         if process.returncode != 0:
-            raise RuntimeError(f"Errore da {ps_executable}: {stderr.strip()}")
+            raise RuntimeError(f"Error from {ps_executable}: {stderr.strip()}")
         yield clean_npurun_output(stdout)
 
 class OllamaCLIProvider(LLMProvider):
@@ -159,7 +159,7 @@ class OllamaCLIProvider(LLMProvider):
         )
         stdout, stderr = process.communicate(input=full_prompt)
         if process.returncode != 0:
-            raise RuntimeError(f"Errore da ollama: {stderr.strip()}")
+            raise RuntimeError(f"Error from ollama: {stderr.strip()}")
         yield stdout
 
 
@@ -198,7 +198,7 @@ class OllamaHTTPProvider(LLMProvider):
                     if chunk.get("done"):
                         break
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"Connessione a Ollama HTTP fallita ({url}): {exc}") from exc
+            raise RuntimeError(f"Connection to Ollama HTTP failed ({url}): {exc}") from exc
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -227,7 +227,7 @@ class OpenAICompatibleProvider(LLMProvider):
             or self.DEFAULT_ENDPOINTS.get(self.config.provider, "")
         )
         if not base:
-            raise ValueError(f"Nessun base_url configurato per '{self.config.provider}'.")
+            raise ValueError(f"No base_url configured for '{self.config.provider}'.")
         return f"{base.rstrip('/')}/chat/completions"
 
     def _resolve_api_key(self) -> str:
@@ -238,7 +238,7 @@ class OpenAICompatibleProvider(LLMProvider):
         )
         key = os.getenv(env_var, "")
         if not key:
-            raise RuntimeError(f"API key mancante per '{self.config.provider}'. Imposta {env_var}.")
+            raise RuntimeError(f"Missing API key for '{self.config.provider}'. Set {env_var}.")
         return key
 
     def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Iterator[str]:
@@ -288,7 +288,7 @@ class OpenAICompatibleProvider(LLMProvider):
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(
-                f"Errore HTTP {exc.code} da {self.config.provider} ({url}): {err_body}"
+                f"HTTP Error {exc.code} from {self.config.provider} ({url}): {err_body}"
             ) from exc
 
 
@@ -324,6 +324,6 @@ def create_provider(
         return OpenAICompatibleProvider(cfg)
 
     raise ValueError(
-        f"Provider non supportato: '{provider_name}'. "
-        "Supportati: foundry, npu, ollama, ollama-http, meta, baseten, fireworks, modal, openai."
+        f"Unsupported provider: '{provider_name}'. "
+        "Supported: foundry, npu, ollama, ollama-http, meta, baseten, fireworks, modal, openai."
     )

@@ -201,7 +201,7 @@ def _normalize_code_agent_output(output: str) -> str:
 
 
 class SpaghettiProviderModel(Model):
-    """Adatta LLMProvider di SpaghettiLens-AI all'interfaccia smolagents.Model."""
+    """Adapts SpaghettiLens-AI's LLMProvider to the smolagents.Model interface."""
 
     def __init__(self, provider: LLMProvider, model_id: Optional[str] = None, **kwargs: Any) -> None:
         resolved_id = model_id or getattr(getattr(provider, "config", None), "model", "spaghettilens-llm")
@@ -225,7 +225,7 @@ class SpaghettiProviderModel(Model):
         system_parts: list[str] = []
         conversation_parts: list[str] = []
 
-        # Sliding window: mantieni il system prompt e solo gli ultimi 4 messaggi per non superare i 4096 token della NPU
+        # Sliding window: retain the system prompt and only the last 4 messages to stay within the NPU's 4096-token limit
         trimmed_messages = messages if len(messages) <= 4 else [messages[0]] + messages[-3:]
 
         for msg in trimmed_messages:
@@ -246,7 +246,7 @@ class SpaghettiProviderModel(Model):
 
         output = _strip_npu_noise(self.provider.generate(user_prompt, system_prompt=system_prompt))
 
-        # Fallback progressivo se il prompt supera il context window della NPU e restituisce stringa vuota
+        # Progressive fallback if the prompt exceeds the NPU context window and returns an empty string
         if not output and len(conversation_parts) > 1:
             compact_user_prompt = conversation_parts[0] + "\n\n" + conversation_parts[-1]
             output = _strip_npu_noise(
@@ -275,31 +275,36 @@ class SpaghettiProviderModel(Model):
 
 def _resolve_legacy_path(file_path: str, fallback_path: str = "") -> Path:
     """
-    Risolve il percorso del file legacy anche se il modello NPU converte camelCase in snake_case
-    (es. 'spaghetti_code.php' -> 'spaghettiCode.php').
+    Resolves the legacy file path even if the NPU model converts camelCase to snake_case
+    (e.g., 'spaghetti_code.php' -> 'spaghettiCode.php').
     """
     path = Path(file_path)
     if path.is_file():
         return path
+    if (Path("fixtures") / file_path).is_file():
+        return Path("fixtures") / file_path
     if fallback_path and Path(fallback_path).is_file():
         return Path(fallback_path)
+    if fallback_path and (Path("fixtures") / fallback_path).is_file():
+        return Path("fixtures") / fallback_path
 
-    parent = path.parent if str(path.parent) != "" else Path(".")
+    search_dirs = [path.parent if str(path.parent) != "" else Path("."), Path("fixtures")]
     normalized_target = re.sub(r"[_\-\s]", "", path.name).lower()
-    if parent.is_dir():
-        for candidate in parent.iterdir():
-            if candidate.is_file() and re.sub(r"[_\-\s]", "", candidate.name).lower() == normalized_target:
-                return candidate
+    for search_dir in search_dirs:
+        if search_dir.is_dir():
+            for candidate in search_dir.iterdir():
+                if candidate.is_file() and re.sub(r"[_\-\s]", "", candidate.name).lower() == normalized_target:
+                    return candidate
     return path
 
 
 def create_spaghettilens_tools(
     provider: LLMProvider,
     max_retries: int = 3,
-    default_file_path: str = "spaghettiCode.php",
+    default_file_path: str = "fixtures/spaghettiCode.php",
     default_schema_path: str = "fixtures/schema.sql",
 ) -> dict[str, Tool]:
-    """Espone i moduli neuro-simbolici di SpaghettiLens-AI come tool smolagents."""
+    """Exposes SpaghettiLens-AI's neuro-symbolic modules as smolagents tools."""
 
     @tool
     def extract_static_dependency_graph(file_path: str, schema_path: str = "") -> str:
@@ -438,9 +443,9 @@ def create_spaghettilens_tools(
 
 def build_strict_prompt_templates() -> PromptTemplates:
     """
-    Sovrascrive il system_prompt prolisso e il template `managed_agent.task` a 3 sezioni
-    di default di smolagents, trasformando gli agenti in puri esecutori di codice Python
-    compatibili con il context window ridotto della NPU.
+    Overrides smolagents' verbose default system_prompt and 3-section `managed_agent.task`
+    template, turning agents into pure Python code executors compatible with the NPU's
+    compact context window.
     """
     templates = copy.deepcopy(EMPTY_PROMPT_TEMPLATES)
     templates["system_prompt"] = (
@@ -487,7 +492,7 @@ def build_spaghettilens_smol_hierarchy(
     max_retries: int = 3,
     smol_model: Optional[Model] = None,
     execution_timeout: int = 1800,
-    default_file_path: str = "spaghettiCode.php",
+    default_file_path: str = "fixtures/spaghettiCode.php",
     default_schema_path: str = "fixtures/schema.sql",
 ) -> CodeAgent:
     llm = smol_model or SpaghettiProviderModel(provider=provider, model_id=model_name)
@@ -509,7 +514,7 @@ def build_spaghettilens_smol_hierarchy(
         "4. NEVER pass multiple arguments separated by commas to `final_answer`.\n"
     )
 
-    # ── LIVELLO 2: Specialisti ──────────────────────────────────────────────
+    # ── LEVEL 2: Specialists ────────────────────────────────────────────────
     dependency_graph_agent = CodeAgent(
         name="dependency_graph_agent",
         description="Extracts the static dependency graph, SQL queries, HTTP inputs, and table references from legacy code.",
@@ -567,7 +572,7 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
-    # ── LIVELLO 1: Team Leads ───────────────────────────────────────────────
+    # ── LEVEL 1: Team Leads ─────────────────────────────────────────────────
     discovery_lead = CodeAgent(
         name="discovery_lead",
         description="Team Lead that coordinates dependency_graph_agent and security_invariant_agent to audit legacy files.",
@@ -611,7 +616,7 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
-    # ── LIVELLO 0: Root Supervisor ──────────────────────────────────────────
+    # ── LEVEL 0: Root Supervisor ────────────────────────────────────────────
     supervisor = CodeAgent(
         name="spaghettilens_supervisor",
         description="Root orchestrator for SpaghettiLens-AI hierarchical legacy modernization.",

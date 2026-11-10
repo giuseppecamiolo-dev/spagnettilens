@@ -21,7 +21,7 @@ class SandboxResult:
     stderr: str = ""
 
     def to_feedback_prompt(self) -> str:
-        """Formatta gli errori della sandbox per il loop di self-healing dell'LLM."""
+        """Formats sandbox errors for the LLM self-healing loop."""
         if self.passed:
             return "All sandbox parity, syntax, and security checks PASSED."
         lines = ["SANDBOX VERIFICATION FAILED. Fix the following issues in your refactored code:"]
@@ -33,7 +33,7 @@ class SandboxResult:
 
 
 def extract_code_block(llm_response: str) -> str:
-    """Estrae il blocco di codice Python dalla risposta Markdown dell'LLM."""
+    """Extracts the Python code block from the LLM Markdown response."""
     pattern = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
     matches = pattern.findall(llm_response)
     if matches:
@@ -42,7 +42,7 @@ def extract_code_block(llm_response: str) -> str:
 
 
 def validate_python_ast(code: str) -> Optional[str]:
-    """Verifica che il codice Python generato sia sintatticamente valido."""
+    """Verifies that the generated Python code is syntactically valid."""
     try:
         ast.parse(code)
         return None
@@ -54,8 +54,8 @@ def check_security_and_invariants(
     code: str, require_ledger_precision: bool = False
 ) -> tuple[bool, bool, List[str]]:
     """
-    Controlla che il codice rifattorizzato non contenga SQL Injection
-    e rispetti le invarianti finanziarie (Decimal / integer cents).
+    Checks that the refactored code contains no SQL Injection vulnerabilities
+    and respects financial ledger invariants (Decimal / integer cents).
     """
     errors: List[str] = []
     security_ok = True
@@ -100,7 +100,7 @@ def check_security_and_invariants(
 
 
 def initialize_ephemeral_sqlite(schema_sql: Optional[str], db_path: Path) -> None:
-    """Inizializza un database SQLite effimero adattando il DDL SQL di test."""
+    """Initializes an ephemeral SQLite database by adapting the test SQL DDL."""
     conn = sqlite3.connect(str(db_path))
     try:
         if schema_sql:
@@ -123,8 +123,8 @@ def verify_refactored_code(
     execute_smoke_test: bool = True,
 ) -> SandboxResult:
     """
-    Valida il codice Python rifattorizzato tramite AST, regole di sicurezza,
-    invarianti contabili ed esecuzione opzionale in sandbox isolata.
+    Validates refactored Python code via AST parsing, security rules,
+    accounting invariants, and optional execution in an isolated sandbox.
     """
     code = extract_code_block(llm_output)
     errors: List[str] = []

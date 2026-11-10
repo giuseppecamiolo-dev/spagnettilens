@@ -50,13 +50,15 @@ def edit_prompt_manually(prompt: str) -> str:
 
 def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
     path = Path(file_path)
+    if not path.is_file() and (Path("fixtures") / file_path).is_file():
+        path = Path("fixtures") / file_path
     if not path.is_file():
-        print(f"Errore: Il file {file_path} non esiste.", file=sys.stderr)
+        print(f"Error: File {file_path} does not exist.", file=sys.stderr)
         sys.exit(1)
 
     # Validate model name to prevent command injection
     if not re.match(r'^[\w.-]+$', model):
-        print(f"Errore: Nome modello non valido: {model}", file=sys.stderr)
+        print(f"Error: Invalid model name: {model}", file=sys.stderr)
         sys.exit(1)
 
     # Handle legacy encodings gracefully
@@ -65,7 +67,7 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
 
     prompt = edit_prompt_manually(prompt)
 
-    print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite npurun...")
+    print(f"[*] Analyzing file {path.name} (Action: {action.upper()}) via npurun...")
     
     # npurun requires the prompt as a trailing argument, not via standard input.
     # So we tell PowerShell to read from stdin, store it in a variable, and pass it as an argument.
@@ -75,7 +77,7 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
     ps_executable = "pwsh.exe" if shutil.which("pwsh.exe") else "powershell.exe"
 
     try:
-        # Esecuzione trasparente di PowerShell da WSL
+        # Transparently execute PowerShell from WSL
         process = subprocess.Popen(
             [ps_executable, "-Command", ps_command],
             stdin=subprocess.PIPE,
@@ -85,11 +87,11 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
             encoding="utf-8"
         )
         
-        # Invia il prompt a PowerShell e attendi la risposta
+        # Send the prompt to PowerShell and wait for the response
         stdout, stderr = process.communicate(input=prompt)
         
         if process.returncode != 0:
-            print(f"\n[!] Errore da {ps_executable}: {stderr}", file=sys.stderr)
+            print(f"\n[!] Error from {ps_executable}: {stderr}", file=sys.stderr)
             sys.exit(1)
 
         print("\n" + "="*50 + "\n")
@@ -97,15 +99,15 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
         print("\n" + "="*50 + "\n")
         
     except FileNotFoundError:
-        print(f"\n[!] Impossibile trovare {ps_executable}. Assicurati di eseguire lo script in WSL su Windows o che PowerShell sia nel PATH.", file=sys.stderr)
+        print(f"\n[!] Could not find {ps_executable}. Ensure you are running this script in WSL on Windows or that PowerShell is in your PATH.", file=sys.stderr)
     except Exception as e:
-        print(f"\n[!] Errore imprevisto: {e}", file=sys.stderr)
+        print(f"\n[!] Unexpected error: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via PowerShell interop")
-    parser.add_argument("file", help="Percorso del file legacy da analizzare")
+    parser.add_argument("file", help="Path to the legacy file to analyze")
     parser.add_argument("--action", choices=["document", "security", "refactor"], default="security")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in npurun")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Model to use in npurun")
     
     args = parser.parse_args()
     

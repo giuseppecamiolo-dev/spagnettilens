@@ -7,7 +7,7 @@ from core.strangler_agent import StranglerAgent
 
 
 class MockSelfHealingProvider(LLMProvider):
-    """Simula un LLM che sbaglia al 1° tentativo (usa float e f-string SQL) e si corregge al 2°."""
+    """Simulates an LLM that fails on the 1st attempt (uses float and f-string SQL) and self-heals on the 2nd."""
 
     def __init__(self) -> None:
         self.call_count = 0
@@ -15,7 +15,7 @@ class MockSelfHealingProvider(LLMProvider):
     def stream(self, prompt: str) -> Iterator[str]:
         self.call_count += 1
         if self.call_count == 1:
-            # Tentativo 1: vulnerabile a SQLi e senza Decimal
+            # Attempt 1: vulnerable to SQLi and missing Decimal
             bad_code = (
                 "```python\n"
                 "import sqlite3\n"
@@ -31,7 +31,7 @@ class MockSelfHealingProvider(LLMProvider):
             )
             yield bad_code
         else:
-            # Tentativo 2: dopo il feedback della sandbox, usa query parametrizzata e Decimal
+            # Attempt 2: after sandbox feedback, uses parameterized query and Decimal
             good_code = (
                 "```python\n"
                 "import os\n"
@@ -76,13 +76,13 @@ def test_sandbox_rejects_syntax_error():
 
 
 def test_strangler_agent_self_healing_loop():
-    perl_code = Path("spaghettiCode.pl").read_text(encoding="utf-8")
+    perl_code = Path("fixtures/spaghettiCode.pl").read_text(encoding="utf-8")
     schema_sql = Path("fixtures/schema.sql").read_text(encoding="utf-8")
 
     mock_provider = MockSelfHealingProvider()
     agent = StranglerAgent(provider=mock_provider, max_retries=3)
 
-    report = agent.run(perl_code, "spaghettiCode.pl", schema_sql=schema_sql)
+    report = agent.run(perl_code, "fixtures/spaghettiCode.pl", schema_sql=schema_sql)
 
     assert report.success is True
     assert report.iterations_used == 2
