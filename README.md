@@ -229,6 +229,15 @@ In **SpaghettiLens-AI (`v0.5.0`)**, we took the opposite approach: we used a com
 ### Why This Scales Up to Frontier Models
 An orchestration harness that achieves **100% single-pass determinism (`iterations_used: 1`) on a 4B local NPU** transfers effortlessly to 70B+ cloud models—delivering lower Time-To-First-Token (TTFT), minimal KV-cache footprint, and zero wasted retry tokens.
 
+### 📚 Theoretical Alignment & Related Work: Deterministic "Expert Blocks"
+Our neuro-symbolic architecture aligns with recent research on **Expert Block Frameworks for Small LLMs** ([Naphade et al., *arXiv:2509.15561*](https://doi.org/10.48550/arXiv.2509.15561)). 
+
+Naphade et al. demonstrate that locally-run small LLMs (`14B`–`32B`) can match `100B+` frontier models (within ~0.9% of GPT-4) when paired with a **Trajectory Context Summarizer (TCS)**—a deterministic block that transforms raw, noisy trajectories into structured context before LLM reasoning. 
+
+**SpaghettiLens-AI (`v0.5.0`)** extends this exact principle to **multi-tier software modernization on 4B edge NPUs**:
+* **Deterministic Context Summarizers (`L2 Discovery Specialists`):** Instead of feeding raw, noisy legacy monoliths into a 4096-token context window, `core/schema_graph.py` acts as a deterministic Expert Block—compressing raw Perl/PHP ASTs and SQL DDL schemas into a structured JSON dependency and invariant graph.
+* **Deterministic Verification Blocks (`L2 Sandbox Specialist`):** `core/sandbox_runner.py` replaces open-ended LLM self-critique with hard symbolic verification (`ast.parse`, parameterized SQL enforcement, and `decimal.Decimal` ledger checks), enabling a **4B parameter model (`qwen3-4b-instruct-2507`)** to achieve deterministic, single-pass refactoring (`iterations_used: 1`) on consumer NPU hardware.
+
 ---
 
 ## 📜 License
