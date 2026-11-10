@@ -39,7 +39,7 @@ def test_smol_hierarchy_propagates_level2_specialists_to_supervisor():
     discovery_desc = supervisor.managed_agents["discovery_lead"].description
     modernization_desc = supervisor.managed_agents["modernization_lead"].description
 
-    # Verifica che il Supervisor (Livello 0) veda i 3 sub-agenti di Livello 2 (PR #3115 / Issue #1061)
+    # Verify that the Supervisor (Level 0) sees the 3 Level 2 sub-agents (PR #3115 / Issue #1061)
     assert "dependency_graph_agent" in discovery_desc
     assert "security_invariant_agent" in discovery_desc
     assert "strangler_sandbox_agent" in modernization_desc

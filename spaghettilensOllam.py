@@ -50,8 +50,10 @@ def edit_prompt_manually(prompt: str) -> str:
 
 def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
     path = Path(file_path)
+    if not path.is_file() and (Path("fixtures") / file_path).is_file():
+        path = Path("fixtures") / file_path
     if not path.is_file():
-        print(f"Errore: Il file {file_path} non esiste.", file=sys.stderr)
+        print(f"Error: File {file_path} does not exist.", file=sys.stderr)
         sys.exit(1)
 
 
@@ -61,10 +63,10 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
 
     prompt = edit_prompt_manually(prompt)
 
-    print(f"[*] Analisi del file {path.name} (Azione: {action.upper()}) tramite Ollama (su WSL)...")
+    print(f"[*] Analyzing file {path.name} (Action: {action.upper()}) via Ollama (on WSL)...")
 
     try:
-        # Esecuzione diretta di ollama su WSL
+        # Execute ollama directly in WSL
         process = subprocess.Popen(
             ["ollama", "run", model],
             stdin=subprocess.PIPE,
@@ -74,11 +76,11 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
             encoding="utf-8"
         )
 
-        # Invia il prompt a ollama e attendi la risposta
+        # Send the prompt to ollama and wait for the response
         stdout, stderr = process.communicate(input=prompt)
 
         if process.returncode != 0:
-            print(f"\n[!] Errore da ollama: {stderr}", file=sys.stderr)
+            print(f"\n[!] Error from ollama: {stderr}", file=sys.stderr)
             sys.exit(1)
 
         print("\n" + "="*50 + "\n")
@@ -86,15 +88,15 @@ def analyze_legacy_code(file_path: str, action: str, model: str) -> None:
         print("\n" + "="*50 + "\n")
 
     except FileNotFoundError:
-        print(f"\n[!] Impossibile trovare 'ollama'. Assicurati che sia installato in WSL.", file=sys.stderr)
+        print(f"\n[!] Could not find 'ollama'. Ensure it is installed in WSL.", file=sys.stderr)
     except Exception as e:
-        print(f"\n[!] Errore imprevisto: {e}", file=sys.stderr)
+        print(f"\n[!] Unexpected error: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LegacyLens-AI: AI-powered Legacy Analyzer via Ollama (WSL)")
-    parser.add_argument("file", help="Percorso del file legacy da analizzare")
+    parser.add_argument("file", help="Path to the legacy file to analyze")
     parser.add_argument("--action", choices=["document", "security", "refactor"], default="security")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare in Ollama")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Model to use in Ollama")
 
     args = parser.parse_args()
 

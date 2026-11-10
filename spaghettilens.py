@@ -11,7 +11,7 @@ from typing import Optional
 from core.providers import create_provider
 from core.schema_graph import build_dependency_graph
 from core.strangler_agent import StranglerAgent
-#smolagents itegrations
+# smolagents integration
 from core.smol_hierarchy import build_spaghettilens_smol_hierarchy
 
 DEFAULT_MODEL = "qwen2.5-coder-0.5b"
@@ -70,12 +70,14 @@ def analyze_legacy_code(
     max_retries: int = 3,
 ) -> None:
     path = Path(file_path)
+    if not path.is_file() and (Path("fixtures") / file_path).is_file():
+        path = Path("fixtures") / file_path
     if not path.is_file():
-        print(f"Errore: Il file {file_path} non esiste.", file=sys.stderr)
+        print(f"Error: File {file_path} does not exist.", file=sys.stderr)
         sys.exit(1)
 
     if not re.match(r"^[\w.:/-]+$", model):
-        print(f"Errore: Nome modello non valido: {model}", file=sys.stderr)
+        print(f"Error: Invalid model name: {model}", file=sys.stderr)
         sys.exit(1)
 
     code = path.read_text(encoding="utf-8", errors="replace")
@@ -97,8 +99,8 @@ def analyze_legacy_code(
 
         if smolagents_mode:
             print(
-                f"[*] Avvio Gerarchia Multi-Livello smolagents (Supervisor -> L1 -> L2) su {path.name} "
-                f"tramite {provider_name.upper()} ({model}) [max_retries={max_retries}]..."
+                f"[*] Starting Multi-Level smolagents Hierarchy (Supervisor -> L1 -> L2) on {path.name} "
+                f"via {provider_name.upper()} ({model}) [max_retries={max_retries}]..."
             )
             supervisor = build_spaghettilens_smol_hierarchy(
                 provider=provider,
@@ -121,7 +123,7 @@ def analyze_legacy_code(
 
         if agent_mode:
             print(
-                f"[*] Avvio StranglerAgent su {path.name} tramite {provider_name.upper()} ({model}) "
+                f"[*] Starting StranglerAgent on {path.name} via {provider_name.upper()} ({model}) "
                 f"[max_retries={max_retries}]..."
             )
             agent = StranglerAgent(provider=provider, max_retries=max_retries)
@@ -129,7 +131,7 @@ def analyze_legacy_code(
 
             for attempt in report.attempts:
                 status = "PASSED" if attempt.sandbox_result.passed else "FAILED"
-                print(f"  -> Iterazione {attempt.iteration}: Sandbox {status}")
+                print(f"  -> Iteration {attempt.iteration}: Sandbox {status}")
                 for err in attempt.sandbox_result.errors:
                     print(f"     [!] {err}")
 
@@ -139,7 +141,7 @@ def analyze_legacy_code(
 
             if not report.success:
                 print(
-                    f"[!] L'agente non ha superato tutte le verifiche della sandbox dopo {report.iterations_used} tentativi.",
+                    f"[!] The agent failed to pass all sandbox checks after {report.iterations_used} attempts.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -155,8 +157,8 @@ def analyze_legacy_code(
             prompt = edit_prompt_manually(prompt)
 
         print(
-            f"[*] Analisi del file {path.name} (Azione: {action.upper()}) "
-            f"tramite {provider_name.upper()} ({model})..."
+            f"[*] Analyzing file {path.name} (Action: {action.upper()}) "
+            f"via {provider_name.upper()} ({model})..."
         )
 
         print("\n" + "=" * 50 + "\n")
@@ -166,12 +168,12 @@ def analyze_legacy_code(
         print("\n" + "=" * 50 + "\n")
     except FileNotFoundError:
         print(
-            "\n[!] Impossibile trovare l'eseguibile. Assicurati di eseguire lo script in WSL su Windows o che il binario sia nel PATH.",
+            "\n[!] Executable not found. Ensure the script is running in WSL on Windows or that the binary is in PATH.",
             file=sys.stderr,
         )
         sys.exit(1)
     except Exception as e:
-        print(f"\n[!] Errore durante l'inferenza: {e}", file=sys.stderr)
+        print(f"\n[!] Error during inference: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -179,41 +181,41 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="SpaghettiLens-AI: AI-powered Legacy Code Analyzer & Refactoring Orchestrator"
     )
-    parser.add_argument("file", help="Percorso del file legacy da analizzare")
+    parser.add_argument("file", help="Path to the legacy file to analyze")
     parser.add_argument("--action", choices=["document", "security", "refactor"], default="security")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello da usare (es. llama3, muse-spark)")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Model to use (e.g., llama3, muse-spark)")
     parser.add_argument(
         "--provider",
         choices=["foundry", "npu", "ollama", "meta", "baseten", "fireworks", "modal", "openai"],
         default="foundry",
-        help="Backend di inferenza (default: foundry)",
+        help="Inference backend (default: foundry)",
     )
-    parser.add_argument("--schema", default=None, help="Percorso opzionale al file schema SQL (.sql)")
+    parser.add_argument("--schema", default=None, help="Optional path to the SQL schema file (.sql)")
     parser.add_argument(
         "--no-interactive",
         action="store_true",
-        help="Salta la conferma interattiva dell'editor (utile per pipeline agentiche)",
+        help="Skip interactive editor confirmation (useful for agentic pipelines)",
     )
     parser.add_argument(
         "--dump-graph",
         action="store_true",
-        help="Estrae e stampa solo il grafo statico JSON senza invocare l'LLM",
+        help="Extract and print only the static JSON dependency graph without invoking the LLM",
     )
     parser.add_argument(
         "--smolagents",
         action="store_true",
-        help="Attiva la gerarchia CodeAgent a 3 livelli (huggingface/smolagents PR #3115)",
+        help="Enable the 3-level CodeAgent hierarchy (huggingface/smolagents PR #3115)",
     )
     parser.add_argument(
         "--agent",
         action="store_true",
-        help="Attiva il loop StranglerAgent con verifica deterministica in sandbox e self-healing",
+        help="Enable the StranglerAgent loop with deterministic sandbox verification and self-healing",
     )
     parser.add_argument(
         "--max-retries",
         type=int,
         default=3,
-        help="Numero massimo di tentativi di self-healing in modalità --agent (default: 3)",
+        help="Maximum number of self-healing attempts in --agent mode (default: 3)",
     )
 
     args = parser.parse_args()
