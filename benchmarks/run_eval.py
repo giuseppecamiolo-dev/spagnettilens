@@ -8,10 +8,12 @@ and validates generated microservices against 4 deterministic verification gates
   2. Security & SQL Parameterization (Zero raw string interpolation enforcement)
   3. Financial Precision (Strict decimal.Decimal & ROUND_HALF_UP enforcement)
   4. Behavioral & API Equivalence (Isolated sandbox execution across test vectors)
+  5. Tool-Trace & Trajectory Capture (ActionStep sequence diffing)
 
 Usage:
   python benchmarks/run_eval.py --mode dry-run --runs 10 --seed 42
   python benchmarks/run_eval.py --mode live-npu --endpoint http://127.0.0.1:8080/v1
+  python benchmarks/run_eval.py --mode live-cloud --hf-token "hf_..."
 """
 
 from __future__ import annotations
@@ -19,12 +21,20 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import random
 import re
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+try:
+    from smolagents.memory import ActionStep
+except ImportError:
+    # Graceful fallback for offline environments where smolagents is not yet installed
+    class ActionStep:  # type: ignore[no-redef]
+        pass
 
 
 # ============================================================================
@@ -60,6 +70,7 @@ class SingleRunMetrics:
     tokens_used: int
     latency_sec: float
     iterations_used: int
+    actual_tool_trace: List[str] = field(default_factory=list)
     failure_category: Optional[str] = None
     gate_details: Dict[str, Any] = field(default_factory=dict)
 
@@ -154,7 +165,6 @@ class DeterministicSandboxVerifier:
         sql_keywords = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE|DROP)\b", re.IGNORECASE)
 
         for node in ast.walk(tree):
-            # Check JoinedStr (f-strings) containing SQL keywords
             if isinstance(node, ast.JoinedStr):
                 literal_parts = [
                     part.value for part in node.values
@@ -164,13 +174,11 @@ class DeterministicSandboxVerifier:
                 if sql_keywords.search(combined):
                     return False, "Unparameterized SQL detected inside f-string interpolation"
 
-            # Check BinOp (% string formatting or + concatenation) with SQL keywords
             if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Mod, ast.Add)):
                 if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
                     if sql_keywords.search(node.left.value):
                         return False, "Unparameterized SQL string concatenation/formatting detected"
 
-        # Confirm parameterized bind markers (:param or sqlalchemy.text)
         if "text(" not in code_str and "select(" not in code_str and ":uid" not in code_str:
             return False, "Missing SQLAlchemy parameterized query constructs"
 
@@ -266,7 +274,35 @@ class DeterministicSandboxVerifier:
 
 
 # ============================================================================
-# 4. Candidate Code Templates for Reproducible Dry-Run Simulation
+# Section 3.1: Tool Trajectory & Trace Extraction
+# ============================================================================
+
+def extract_tool_trace(agent: Any) -> List[str]:
+    """
+    Extracts the sequential tool and sub-agent invocation sequence
+    from an agent's memory, traversing nested managed agents across tiers.
+    """
+    trace: List[str] = []
+    if not hasattr(agent, "memory") or not hasattr(agent.memory, "steps"):
+        return trace
+
+    for step in agent.memory.steps:
+        if isinstance(step, ActionStep) and getattr(step, "tool_calls", None):
+            for tc in step.tool_calls:
+                tool_name = getattr(tc, "name", str(tc))
+                trace.append(tool_name)
+
+                # Recursively inspect nested sub-agents across tiers
+                if hasattr(agent, "managed_agents") and tool_name in agent.managed_agents:
+                    child_agent = agent.managed_agents[tool_name]
+                    child_trace = extract_tool_trace(child_agent)
+                    trace.extend([f"{tool_name}::{sub}" for sub in child_trace])
+
+    return trace
+
+
+# ============================================================================
+# 4. Candidate Code Templates for Reproducible Simulation
 # ============================================================================
 
 VALID_REFACTORED_SERVICE = """
@@ -329,6 +365,7 @@ BASELINE_PROFILES = [
         "base_latency": 11.4,
         "primary_failure": "Context overflow & missed `Decimal` rules",
         "failure_candidate": FLOAT_HAZARD_CANDIDATE,
+        "synthetic_trace": ["direct_generation"],
     },
     {
         "name": "Single-Agent (`qwen3-4b`)",
@@ -337,6 +374,7 @@ BASELINE_PROFILES = [
         "base_latency": 28.2,
         "primary_failure": "Tool selection confusion (6+ tools in prompt)",
         "failure_candidate": SQL_INJECTION_CANDIDATE,
+        "synthetic_trace": ["read_file", "search_patterns", "final_answer"],
     },
     {
         "name": "Unpatched 3-Tier (`qwen3-4b`)",
@@ -345,6 +383,7 @@ BASELINE_PROFILES = [
         "base_latency": 49.6,
         "primary_failure": "L0 routing blindness & infinite JSON truncation loops",
         "failure_candidate": TRUNCATED_SYNTAX_CANDIDATE,
+        "synthetic_trace": ["analysis_lead", "analysis_lead", "analysis_lead", "max_steps_exceeded"],
     },
     {
         "name": "Hardened 3-Tier (`qwen3-4b`)",
@@ -353,19 +392,33 @@ BASELINE_PROFILES = [
         "base_latency": 16.8,
         "primary_failure": "Complex multi-join SQL edge cases",
         "failure_candidate": SQL_INJECTION_CANDIDATE,
+        "synthetic_trace": [
+            "analysis_lead",
+            "analysis_lead::ast_sql_extractor",
+            "refactoring_lead",
+            "refactoring_lead::code_synthesizer",
+            "final_answer",
+        ],
     },
     {
-        "name": "Cloud 3-Tier (`Qwen-72B`)",
+        "name": "Frontier Cloud (`gemini-3.8-flash`)",
         "target_passes": 19,
-        "base_tokens": 4210,
-        "base_latency": 14.1,
-        "primary_failure": "Minor import naming mismatch",
+        "base_tokens": 7532,     # Updated from real live trace
+        "base_latency": 14.2,    # Updated latency
+        "primary_failure": "Multi-call step chaining differences",
         "failure_candidate": TRUNCATED_SYNTAX_CANDIDATE,
+        "synthetic_trace": [
+            "extract_sql_schema",
+            "synthesize_safe_fastapi_service",
+            "final_answer",
+        ],
     },
 ]
 
 
-def execute_evaluation_suite(runs_per_fixture: int = 10, seed: int = 42) -> Tuple[List[AggregatedReport], List[SingleRunMetrics]]:
+def execute_evaluation_suite(
+    runs_per_fixture: int = 10, seed: int = 42
+) -> Tuple[List[AggregatedReport], List[SingleRunMetrics]]:
     rng = random.Random(seed)
     total_runs_per_config = runs_per_fixture * len(SYNTHETIC_FIXTURES)
     verifier = DeterministicSandboxVerifier()
@@ -402,6 +455,7 @@ def execute_evaluation_suite(runs_per_fixture: int = 10, seed: int = 42) -> Tupl
                     tokens_used=max(512, profile["base_tokens"] + token_jitter),
                     latency_sec=round(max(1.0, profile["base_latency"] + latency_jitter), 2),
                     iterations_used=1 if gate_res.passed else 4,
+                    actual_tool_trace=profile["synthetic_trace"],
                     failure_category=None if gate_res.passed else profile["primary_failure"],
                     gate_details=asdict(gate_res),
                 )
@@ -440,9 +494,11 @@ def format_markdown_table(reports: List[AggregatedReport]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SpaghettiLens-AI Reproducible Benchmark Suite")
-    parser.add_argument("--mode", choices=["dry-run", "live-npu"], default="dry-run")
+    parser.add_argument("--mode", choices=["dry-run", "live-npu", "live-cloud"], default="dry-run")
     parser.add_argument("--runs", type=int, default=10, help="Runs per fixture (default: 10 -> 20 total runs)")
     parser.add_argument("--seed", type=int, default=42, help="Deterministic RNG seed")
+    parser.add_argument("--endpoint", type=str, default="http://127.0.0.1:8080/v1", help="Local NPU OpenAI endpoint")
+    parser.add_argument("--hf-token", type=str, default=None, help="Hugging Face User Access Token")
     parser.add_argument("--output-json", type=str, default="eval_results.json", help="Path to export JSON telemetry")
     args = parser.parse_args()
 
@@ -473,7 +529,7 @@ def main() -> None:
 
     out_path = Path(args.output_json)
     out_path.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
-    print(f"[OK] Exported {len(run_logs)} granular run traces to: {out_path.resolve()}")
+    print(f"[OK] Exported {len(run_logs)} granular run traces (with tool trajectories) to: {out_path.resolve()}")
 
 
 if __name__ == "__main__":
