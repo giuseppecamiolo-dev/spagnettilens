@@ -28,6 +28,7 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 ## 🏗️ System Architecture
 
 ### 1. Core Neuro-Symbolic Pipeline
+* **Cloud SSE APIs:** Meta, Baseten, Fireworks, Modal, OpenAI, and Google AI Studio (Gemini).
 ```text
 +-------------------------------------------------------------------------+
 |                        Legacy Source & DDL Input                        |
@@ -162,6 +163,11 @@ python3 spaghettilens.py fixtures/spaghettiCode.php \
   --model llama3
 ```
 
+### 5. Reproducible Benchmarks (4B NPU vs. Frontier Cloud)
+Run the offline deterministic verification simulator (5 configurations x 2 fixtures x 10 runs):
+```bash
+python3 benchmarks/run_eval.py --mode dry-run --runs 10 --seed 42
+
 ---
 
 ## 🧪 Automated Test Suite & CI
@@ -178,7 +184,10 @@ python3 -m pytest -v
 
 ```text
 spaghettilens-ai/
-├── .github/workflows/ci.yml       # GitHub Actions CI pipeline (Ubuntu 24.04, Python 3.11)
+├── .github/workflows/ci.yml       # GitHub Actions CI pipeline
+├── benchmarks/                    # 4-Gate verification & tool-trace suite
+│   ├── run_eval.py                # Offline simulator & baseline telemetry
+│   └── run_live_cloud_trace.py   # Live Gemini AST call trace extractor
 ├── core/
 │   ├── __init__.py
 │   ├── providers.py               # Unified multi-provider streaming abstraction
