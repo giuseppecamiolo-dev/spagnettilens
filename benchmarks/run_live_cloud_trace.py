@@ -45,10 +45,10 @@ def synthesize_safe_fastapi_service(schema_json: str) -> str:
         "    return gross.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)\n"
     )
 
-def extract_semantic_tool_trace(agent) -> list[str]:
+def extract_static_call_inventory(agent) -> list[str]:
     """
     Walks the Python AST inside each ActionStep.code_action to extract
-    the exact sequence of semantic tool and sub-agent function calls.
+    an ordered static call inventory of registered tools and sub-agents.
     """
     known_callables = (
         set(getattr(agent, "tools", {}).keys())
