@@ -214,11 +214,11 @@ spaghettilens-ai/
 
 ---
 
-## 🧪 Case Study: The 4B Edge NPU as a Multi-Agent "Wind Tunnel"
+## 🧪 Case Study: The 4B Edge NPU as a Multi-Agent Stress Test
 
-Most multi-agent frameworks are benchmarked on 70B+ cloud models. Because frontier models have massive parameter capacity, they silently mask architectural flaws—recovering from ambiguous agent descriptions, ignoring bloated system prompts, and guessing missing tool schemas. 
+Most multi-agent frameworks are developed on 70B+ cloud models, whose large parameter capacity and wide context windows can sometimes compensate for orchestration flaws—working around ambiguous agent descriptions, verbose system prompts, or missing tool schemas. 
 
-In **SpaghettiLens-AI (`v0.5.0`)**, we took the opposite approach: we used a compact **4B parameter model (`qwen3-4b-instruct-2507`)** running locally on a **Snapdragon NPU** (within a strict **4096-token sliding context window**) as a high-pressure "wind tunnel" to harden a **3-tier `smolagents` `CodeAgent` hierarchy** (`L0 Supervisor` $\rightarrow$ `L1 Team Leads` $\rightarrow$ `L2 Specialists`).
+In **SpaghettiLens-AI (`v0.5.0`)**, we explored using a compact **4B parameter model (`qwen3-4b-instruct-2507`)** on a local **Snapdragon NPU** (configured with a **4,096-token sliding context limit**) as an exploratory "wind tunnel" to stress-test a **3-tier `smolagents` `CodeAgent` hierarchy** (`L0 Supervisor` -> `L1 Team Leads` -> `L2 Specialists`). Rather than claiming a 4B model replaces frontier models, this case study illustrates how tight local constraints can make routing, context-management, and verification issues easier to spot during development.
 
 ### Failure Modes Exposed on 4B Edge Hardware (and How We Solved Them)
 
