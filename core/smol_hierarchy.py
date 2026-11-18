@@ -1,22 +1,21 @@
 from __future__ import annotations
 
+import ast
+import copy
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
-from smolagents import CodeAgent, Tool, tool
+from smolagents import ActionStep, CodeAgent, Tool, tool
 from smolagents.agents import EMPTY_PROMPT_TEMPLATES, PromptTemplates
 from smolagents.models import ChatMessage, MessageRole, Model
-import copy
 
+from core.call_ledger import CallLedger
 from core.providers import LLMProvider
 from core.sandbox_runner import verify_refactored_code
 from core.schema_graph import build_dependency_graph
 from core.strangler_agent import StranglerAgent
-
-import re
-
-import ast
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 NPURUN_LOG_RE = re.compile(
@@ -37,11 +36,38 @@ TOOL_DEF_STUB_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
+DEFAULT_TOOL_ARG_ALIASES: dict[str, tuple[str, ...]] = {
+    "extract_static_dependency_graph": ("file_path", "schema_path"),
+    "audit_security_and_ledger_invariants": ("file_path", "schema_path"),
+    "execute_strangler_refactoring": ("file_path", "schema_path"),
+    "run_standalone_sandbox_check": (
+        "candidate_python_code",
+        "require_ledger_precision",
+        "schema_path",
+    ),
+    "dependency_graph_agent": ("task", "additional_args"),
+    "security_invariant_agent": ("task", "additional_args"),
+    "strangler_sandbox_agent": ("task", "additional_args"),
+    "discovery_lead": ("task", "additional_args"),
+    "modernization_lead": ("task", "additional_args"),
+}
+
 
 def _strip_npu_noise(text: str) -> str:
     cleaned = ANSI_ESCAPE_RE.sub("", text)
     cleaned = NPURUN_LOG_RE.sub("", cleaned)
     return cleaned.strip()
+
+
+def _summarize_step_observation(observations: Any, max_len: int = 56) -> str:
+    if observations is None:
+        return ""
+    compact = re.sub(r"\s+", " ", str(observations)).strip()
+    if not compact:
+        return ""
+    if len(compact) <= max_len:
+        return compact
+    return compact[: max_len - 3] + "..."
 
 
 def _sanitize_python_code_body(code_body: str) -> str:
@@ -52,16 +78,11 @@ def _sanitize_python_code_body(code_body: str) -> str:
     3. Repairs quadruple quotes and unterminated `final_answer(...)` string literals.
     4. Wraps bare string-literal expressions into `final_answer(...)`.
     """
-    # 1. Remove stub redefinitions of registered tools
     cleaned = TOOL_DEF_STUB_RE.sub("", code_body).strip()
-
-    # 2. Fix quadruple quotes `""""` -> `"""`
     cleaned = cleaned.replace('""""', '"""')
 
-    # 3. Fast path: if already valid Python AST
     try:
         tree = ast.parse(cleaned)
-        # If the entire block is just a single bare string literal expression, wrap in final_answer()
         if (
             len(tree.body) == 1
             and isinstance(tree.body[0], ast.Expr)
@@ -73,7 +94,6 @@ def _sanitize_python_code_body(code_body: str) -> str:
     except SyntaxError:
         pass
 
-    # 4. If there is a tool/agent call followed by raw markdown prose, keep only valid statements
     kept_lines: list[str] = []
     in_final_answer = False
     final_answer_buf: list[str] = []
@@ -87,7 +107,6 @@ def _sanitize_python_code_body(code_body: str) -> str:
             in_final_answer = True
             final_answer_buf.append(line)
             continue
-        # Keep valid single-line Python statements (assignments, tool calls, imports, prints, comments)
         if not stripped or stripped.startswith("#"):
             kept_lines.append(line)
             continue
@@ -95,7 +114,6 @@ def _sanitize_python_code_body(code_body: str) -> str:
             ast.parse(stripped)
             kept_lines.append(line)
         except SyntaxError:
-            # Drop raw markdown / unquoted prose lines outside final_answer
             continue
 
     if final_answer_buf:
@@ -104,8 +122,7 @@ def _sanitize_python_code_body(code_body: str) -> str:
             ast.parse(raw_fa)
             kept_lines.append(raw_fa)
         except SyntaxError:
-            # Extract inner payload from broken/unterminated final_answer(...) and json.dumps it safely
-            inner = re.sub(r"^final_answer\s*\(\s*", "", raw_fa)
+            inner = re.sub(r"^final_answer\s*\(\s*", "", raw_fa) 
             inner = re.sub(r"\s*\)\s*$", "", inner)
             inner = inner.strip("\"' \n\t")
             kept_lines.append(f"final_answer({json.dumps(inner or 'Completed.')})")
@@ -158,7 +175,6 @@ def _normalize_code_agent_output(output: str) -> str:
             thought = f"Thought: {thought}"
         return f"{thought}\n<code>\n{code_body}\n</code>"
 
-    # Check if the model emitted raw Python tool/agent calls without tags
     code_indicators = (
         "final_answer(",
         "extract_static_dependency_graph(",
@@ -195,7 +211,6 @@ def _normalize_code_agent_output(output: str) -> str:
         code_str = _sanitize_python_code_body("\n".join(code_lines).strip())
         return f"{thought_str}\n<code>\n{code_str}\n</code>"
 
-    # Plain-text response without code: wrap safely in final_answer(...)
     safe_literal = json.dumps(text)
     return f"Thought: Returning final answer.\n<code>\nfinal_answer({safe_literal})\n</code>"
 
@@ -271,6 +286,121 @@ class SpaghettiProviderModel(Model):
 
         output = _normalize_code_agent_output(output)
         return ChatMessage(role=MessageRole.ASSISTANT, content=output)
+
+
+class LedgerCodeAgent(CodeAgent):
+    """
+    CodeAgent subclass equipped with an out-of-window CallLedger:
+    1. Injects a compact digest of executed tool/sub-agent calls into the sliding window.
+    2. Short-circuits redundant static calls that already succeeded earlier in the run.
+    3. Records completed ActionSteps via step_callbacks.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        enable_duplicate_guard: bool = True,
+        max_digest_entries: int = 8,
+        max_digest_chars: int = 420,
+        **kwargs: Any,
+    ) -> None:
+        user_callbacks = dict(kwargs.pop("step_callbacks", None) or {})
+        existing_action_cb = user_callbacks.get(ActionStep)
+
+        def _on_action_step(step: ActionStep, agent: CodeAgent) -> None:
+            if getattr(step, "code_action", None):
+                status = "ERROR" if getattr(step, "error", None) else "OK"
+                summary = _summarize_step_observation(getattr(step, "observations", None))
+                self.call_ledger.record_step(
+                    step_num=getattr(step, "step_number", 0),
+                    code_action=step.code_action,
+                    status=status,
+                    outcome_summary=summary,
+                )
+            if callable(existing_action_cb):
+                existing_action_cb(step, agent)
+
+        user_callbacks[ActionStep] = _on_action_step
+        super().__init__(*args, step_callbacks=user_callbacks, **kwargs)
+
+        registered_names: set[str] = set()
+        if getattr(self, "tools", None):
+            registered_names.update(self.tools.keys())
+        if getattr(self, "managed_agents", None):
+            registered_names.update(self.managed_agents.keys())
+
+        self.call_ledger = CallLedger(
+            registered_names=registered_names,
+            arg_aliases=DEFAULT_TOOL_ARG_ALIASES,
+            max_digest_entries=max_digest_entries,
+            max_digest_chars=max_digest_chars,
+        )
+        self.enable_duplicate_guard = enable_duplicate_guard
+
+        if self.enable_duplicate_guard and getattr(self, "python_executor", None) is not None:
+            raw_executor = self.python_executor
+
+            def _guarded_executor(code_action: str, *exec_args: Any, **exec_kwargs: Any) -> Any:
+                skip, skip_msg = self.call_ledger.should_short_circuit(code_action)
+                if skip:
+                    return skip_msg, skip_msg, False
+                return raw_executor(code_action, *exec_args, **exec_kwargs)
+
+            self.python_executor = _guarded_executor
+
+    def write_memory_to_messages(self, summary_mode: bool = False) -> list[ChatMessage | dict]:
+        messages = super().write_memory_to_messages(summary_mode=summary_mode)
+        digest = self.call_ledger.format_digest()
+        if not digest or len(messages) < 2:
+            return messages
+
+        ledger_msg = ChatMessage(
+            role=MessageRole.USER,
+            content=[{"type": "text", "text": digest}],
+        )
+        # Keep system prompt (messages[0]) + task prompt (messages[1]), inject compact ledger,
+        # and retain the latest 2 messages so total length stays <= 5 and survives provider trimming.
+        if len(messages) <= 3:
+            return [messages[0], messages[1], ledger_msg] + messages[2:]
+        return [messages[0], messages[1], ledger_msg] + messages[-2:]
+
+
+def _iter_hierarchy_agents(root_agent: CodeAgent) -> list[CodeAgent]:
+    """Depth-first traversal over root supervisor, team leads, and specialists."""
+    visited: set[int] = set()
+    ordered: list[CodeAgent] = []
+
+    def _visit(agent: CodeAgent) -> None:
+        if id(agent) in visited:
+            return
+        visited.add(id(agent))
+        ordered.append(agent)
+        managed = getattr(agent, "managed_agents", None) or {}
+        for sub in managed.values():
+            _visit(sub)
+
+    _visit(root_agent)
+    return ordered
+
+
+def reset_hierarchy_ledgers(root_agent: CodeAgent) -> None:
+    """Clears CallLedger state across all tiers in the hierarchy between runs."""
+    for agent in _iter_hierarchy_agents(root_agent):
+        ledger = getattr(agent, "call_ledger", None)
+        if isinstance(ledger, CallLedger):
+            ledger.clear()
+
+
+def get_hierarchy_ledger_digests(root_agent: CodeAgent) -> dict[str, str]:
+    """Returns non-empty CallLedger digests keyed by agent name for observability/debugging."""
+    digests: dict[str, str] = {}
+    for agent in _iter_hierarchy_agents(root_agent):
+        ledger = getattr(agent, "call_ledger", None)
+        if isinstance(ledger, CallLedger):
+            digest = ledger.format_digest()
+            if digest:
+                digests[getattr(agent, "name", "unknown_agent")] = digest
+    return digests
 
 
 def _resolve_legacy_path(file_path: str, fallback_path: str = "") -> Path:
@@ -441,6 +571,7 @@ def create_spaghettilens_tools(
         "sandbox": run_standalone_sandbox_check,
     }
 
+
 def build_strict_prompt_templates() -> PromptTemplates:
     """
     Overrides smolagents' verbose default system_prompt and 3-section `managed_agent.task`
@@ -494,7 +625,8 @@ def build_spaghettilens_smol_hierarchy(
     execution_timeout: int = 1800,
     default_file_path: str = "fixtures/spaghettiCode.php",
     default_schema_path: str = "fixtures/schema.sql",
-) -> CodeAgent:
+    enable_duplicate_guard: bool = True,
+) -> LedgerCodeAgent:
     llm = smol_model or SpaghettiProviderModel(provider=provider, model_id=model_name)
     tools_map = create_spaghettilens_tools(
         provider=provider,
@@ -515,7 +647,7 @@ def build_spaghettilens_smol_hierarchy(
     )
 
     # ── LEVEL 2: Specialists ────────────────────────────────────────────────
-    dependency_graph_agent = CodeAgent(
+    dependency_graph_agent = LedgerCodeAgent(
         name="dependency_graph_agent",
         description="Extracts the static dependency graph, SQL queries, HTTP inputs, and table references from legacy code.",
         tools=[tools_map["graph"]],
@@ -524,6 +656,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=4,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "Execute this exact code in Step 1:\n"
             "<code>\n"
@@ -534,7 +667,7 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
-    security_invariant_agent = CodeAgent(
+    security_invariant_agent = LedgerCodeAgent(
         name="security_invariant_agent",
         description="Audits security vulnerabilities (SQLi, XSS, hardcoded secrets) and ledger decimal invariants.",
         tools=[tools_map["audit"]],
@@ -543,6 +676,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=4,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "Execute this exact code in Step 1:\n"
             "<code>\n"
@@ -553,7 +687,7 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
-    strangler_sandbox_agent = CodeAgent(
+    strangler_sandbox_agent = LedgerCodeAgent(
         name="strangler_sandbox_agent",
         description="Executes the Strangler Fig refactoring into Python 3.11+ and verifies it in the deterministic sandbox.",
         tools=[tools_map["strangler"], tools_map["sandbox"]],
@@ -562,6 +696,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=4,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "Execute this exact code in Step 1:\n"
             "<code>\n"
@@ -573,7 +708,7 @@ def build_spaghettilens_smol_hierarchy(
     )
 
     # ── LEVEL 1: Team Leads ─────────────────────────────────────────────────
-    discovery_lead = CodeAgent(
+    discovery_lead = LedgerCodeAgent(
         name="discovery_lead",
         description="Team Lead that coordinates dependency_graph_agent and security_invariant_agent to audit legacy files.",
         tools=[],
@@ -583,6 +718,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=5,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "You are the Discovery Team Lead. You must only execute this exact code in Step 1:\n"
             "<code>\n"
@@ -595,7 +731,7 @@ def build_spaghettilens_smol_hierarchy(
         ),
     )
 
-    modernization_lead = CodeAgent(
+    modernization_lead = LedgerCodeAgent(
         name="modernization_lead",
         description="Team Lead that delegates legacy code refactoring and deterministic sandbox verification to strangler_sandbox_agent.",
         tools=[],
@@ -605,6 +741,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=5,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "You are the Modernization Team Lead. You must only execute this exact code in Step 1:\n"
             "<code>\n"
@@ -617,7 +754,7 @@ def build_spaghettilens_smol_hierarchy(
     )
 
     # ── LEVEL 0: Root Supervisor ────────────────────────────────────────────
-    supervisor = CodeAgent(
+    supervisor = LedgerCodeAgent(
         name="spaghettilens_supervisor",
         description="Root orchestrator for SpaghettiLens-AI hierarchical legacy modernization.",
         tools=[],
@@ -627,6 +764,7 @@ def build_spaghettilens_smol_hierarchy(
         max_steps=6,
         additional_authorized_imports=authorized_imports,
         executor_kwargs=exec_cfg,
+        enable_duplicate_guard=enable_duplicate_guard,
         instructions=(
             "You are the SpaghettiLens-AI Root Supervisor. You must only execute this exact code in Step 1:\n"
             "<code>\n"
@@ -652,9 +790,11 @@ def build_spaghettilens_smol_hierarchy(
             if delegation_note not in lead.description:
                 lead.description += delegation_note
 
+    # Convenience helpers attached to root supervisor for multi-run benchmarks
+    supervisor.reset_ledgers = lambda: reset_hierarchy_ledgers(supervisor)  # type: ignore[attr-defined]
+    supervisor.get_ledger_digests = lambda: get_hierarchy_ledger_digests(supervisor)  # type: ignore[attr-defined]
+
     return supervisor
 
 
 build_spaghettilens_hierarchy = build_spaghettilens_smol_hierarchy
-
-
