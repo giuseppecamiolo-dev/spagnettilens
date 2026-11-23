@@ -23,6 +23,7 @@ DEFAULT_MODELS: Dict[str, str] = {
     "baseten": "llama3",
     "fireworks": "llama3",
     "modal": "llama3",
+    "gemini": "gemini-3.8-flash",
 }
 
 
@@ -210,6 +211,7 @@ class OpenAICompatibleProvider(LLMProvider):
         "fireworks": "https://api.fireworks.ai/inference/v1",
         "modal": "https://api.modal.com/v1",
         "openai": "https://api.openai.com/v1",
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     }
 
     ENV_KEY_MAP: Dict[str, str] = {
@@ -218,6 +220,7 @@ class OpenAICompatibleProvider(LLMProvider):
         "fireworks": "FIREWORKS_API_KEY",
         "modal": "MODAL_API_KEY",
         "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
     }
 
     def _resolve_endpoint(self) -> str:
@@ -320,10 +323,10 @@ def create_provider(
         return OllamaCLIProvider(cfg)
     if normalized == "ollama-http":
         return OllamaHTTPProvider(cfg)
-    if normalized in {"meta", "baseten", "fireworks", "modal", "openai"}:
+    if normalized in {"meta", "baseten", "fireworks", "modal", "openai", "gemini"}:
         return OpenAICompatibleProvider(cfg)
 
     raise ValueError(
         f"Unsupported provider: '{provider_name}'. "
-        "Supported: foundry, npu, ollama, ollama-http, meta, baseten, fireworks, modal, openai."
+        "Supported: foundry, npu, ollama, ollama-http, meta, baseten, fireworks, modal, openai, gemini."
     )

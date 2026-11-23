@@ -90,3 +90,15 @@ def test_strangler_agent_self_healing_loop():
     assert report.attempts[0].sandbox_result.passed is False
     assert report.attempts[1].sandbox_result.passed is True
     assert "Decimal" in report.final_code
+
+
+def test_sandbox_rejects_empty_or_stub_only_output():
+    res_no_fn = verify_refactored_code("from decimal import Decimal\nx = Decimal('1.00')", require_ledger_precision=True)
+    assert res_no_fn.passed is False
+    assert res_no_fn.runtime_ok is False
+    assert any("RUNTIME_VIOLATION" in e for e in res_no_fn.errors)
+
+    res_stub = verify_refactored_code("from decimal import Decimal\ndef noop():\n    pass\n", require_ledger_precision=True)
+    assert res_stub.passed is False
+    assert res_stub.runtime_ok is False
+    assert any("RUNTIME_VIOLATION" in e for e in res_stub.errors)

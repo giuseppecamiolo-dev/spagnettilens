@@ -55,7 +55,7 @@ def run_bench_cli(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--baseline",
         required=True,
-        help="Baseline model spec (e.g. 'openai/gpt-4o' or 'openrouter/qwen/qwen-2.5-72b-instruct').",
+        help="Baseline model spec (e.g. 'gemini/gemini-3.5-flash' or 'openai/gpt-4o').",
     )
     parser.add_argument(
         "--candidate",

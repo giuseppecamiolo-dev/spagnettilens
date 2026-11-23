@@ -50,6 +50,26 @@ def validate_python_ast(code: str) -> Optional[str]:
         return f"SyntaxError at line {exc.lineno}: {exc.msg}"
 
 
+def _has_non_trivial_callable(code: str) -> bool:
+    """Returns True if code defines at least one function/async function with real statements."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for stmt in node.body:
+                if isinstance(stmt, ast.Pass):
+                    continue
+                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+                    # Skip docstrings and `...` (Ellipsis) stubs
+                    if isinstance(stmt.value.value, str) or stmt.value.value is Ellipsis:
+                        continue
+                return True
+    return False
+
+
 def check_security_and_invariants(
     code: str, require_ledger_precision: bool = False
 ) -> tuple[bool, bool, List[str]]:
@@ -150,6 +170,13 @@ def verify_refactored_code(
     stderr_str = ""
 
     if execute_smoke_test:
+        if not _has_non_trivial_callable(code):
+            runtime_ok = False
+            errors.append(
+                "RUNTIME_VIOLATION: Refactored output must define at least one non-trivial "
+                "function or endpoint (not empty or pass-only stubs)."
+            )
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             db_file = tmp_path / "sandbox_test.db"

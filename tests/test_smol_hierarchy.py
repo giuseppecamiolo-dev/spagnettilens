@@ -197,5 +197,65 @@ def test_managed_agent_def_stubs_and_snake_case_filename_resolved(tmp_path):
     assert graph_data["file_name"] == "spaghettiCode.php"
 
 
+def test_ledger_code_agent_guarded_executor_preserves_executor_interface():
+    from smolagents import tool
+    from smolagents.local_python_executor import CodeOutput
+    from core.smol_hierarchy import LedgerCodeAgent, _GuardedPythonExecutor
+
+    @tool
+    def ping(val: str) -> str:
+        """Return val.
+
+        Args:
+            val: input string
+        """
+        return f"pong:{val}"
+
+    class _RunModel(Model):
+        def __init__(self) -> None:
+            super().__init__(model_id="dummy")
+            self.calls = 0
+
+        def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return ChatMessage(
+                    role=MessageRole.ASSISTANT,
+                    content='Thought: call ping\n<code>\nres = ping(val="a")\n</code>',
+                )
+            return ChatMessage(
+                role=MessageRole.ASSISTANT,
+                content='Thought: finish\n<code>\nfinal_answer("ok")\n</code>',
+            )
+
+    agent = LedgerCodeAgent(tools=[ping], model=_RunModel(), name="guarded_test_agent")
+    assert isinstance(agent.python_executor, _GuardedPythonExecutor)
+    assert hasattr(agent.python_executor, "send_variables")
+    assert hasattr(agent.python_executor, "send_tools")
+
+    result = agent.run("run ping and finish")
+    assert result == "ok"
+
+    # Duplicate static call must short-circuit with a CodeOutput object
+    dup_out = agent.python_executor('res = ping(val="a")')
+    assert isinstance(dup_out, CodeOutput)
+    assert dup_out.is_final_answer is False
+    assert "Skipped duplicate tool call(s)" in dup_out.logs
+
+
+def test_normalize_code_agent_output_repairs_additional_args_typo():
+    from core.smol_hierarchy import _normalize_code_agent_output
+
+    raw = (
+        "<code>\n"
+        "sec_res = security_invariant_agent(task='Audit security', additionalorary_args={'file_path': 'x.pl'})\n"
+        "</code>"
+    )
+    normalized = _normalize_code_agent_output(raw)
+    assert "additionalorary_args" not in normalized
+    assert "additional_args={'file_path': 'x.pl'}" in normalized
+
+
+
 
 

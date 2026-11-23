@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from smolagents import ActionStep, CodeAgent, Tool, tool
 from smolagents.agents import EMPTY_PROMPT_TEMPLATES, PromptTemplates
+from smolagents.local_python_executor import CodeOutput
 from smolagents.models import ChatMessage, MessageRole, Model
 
 from core.call_ledger import CallLedger
@@ -80,6 +81,7 @@ def _sanitize_python_code_body(code_body: str) -> str:
     """
     cleaned = TOOL_DEF_STUB_RE.sub("", code_body).strip()
     cleaned = cleaned.replace('""""', '"""')
+    cleaned = re.sub(r"\badditional[a-z_]*_args\s*=", "additional_args=", cleaned)
 
     try:
         tree = ast.parse(cleaned)
@@ -288,6 +290,23 @@ class SpaghettiProviderModel(Model):
         return ChatMessage(role=MessageRole.ASSISTANT, content=output)
 
 
+class _GuardedPythonExecutor:
+    """Wraps a smolagents PythonExecutor to short-circuit duplicate static calls while preserving executor methods."""
+
+    def __init__(self, raw_executor: Any, call_ledger: CallLedger) -> None:
+        self._raw = raw_executor
+        self._call_ledger = call_ledger
+
+    def __call__(self, code_action: str, *exec_args: Any, **exec_kwargs: Any) -> Any:
+        skip, skip_msg = self._call_ledger.should_short_circuit(code_action)
+        if skip:
+            return CodeOutput(output=skip_msg, logs=skip_msg, is_final_answer=False)
+        return self._raw(code_action, *exec_args, **exec_kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._raw, name)
+
+
 class LedgerCodeAgent(CodeAgent):
     """
     CodeAgent subclass equipped with an out-of-window CallLedger:
@@ -338,15 +357,10 @@ class LedgerCodeAgent(CodeAgent):
         self.enable_duplicate_guard = enable_duplicate_guard
 
         if self.enable_duplicate_guard and getattr(self, "python_executor", None) is not None:
-            raw_executor = self.python_executor
-
-            def _guarded_executor(code_action: str, *exec_args: Any, **exec_kwargs: Any) -> Any:
-                skip, skip_msg = self.call_ledger.should_short_circuit(code_action)
-                if skip:
-                    return skip_msg, skip_msg, False
-                return raw_executor(code_action, *exec_args, **exec_kwargs)
-
-            self.python_executor = _guarded_executor
+            self.python_executor = _GuardedPythonExecutor(
+                raw_executor=self.python_executor,
+                call_ledger=self.call_ledger,
+            )
 
     def write_memory_to_messages(self, summary_mode: bool = False) -> list[ChatMessage | dict]:
         messages = super().write_memory_to_messages(summary_mode=summary_mode)

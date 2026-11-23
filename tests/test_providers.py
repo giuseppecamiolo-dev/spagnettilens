@@ -71,6 +71,15 @@ class TestLLMProviders(unittest.TestCase):
             output = provider.generate("Generate FastAPI endpoint")
             self.assertEqual(output, "def get_invoice():")
 
+    def test_gemini_provider_endpoint_and_key(self) -> None:
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "gem-test-key"}):
+            provider = create_provider("gemini", "gemini-3.8-flash")
+            self.assertEqual(
+                provider._resolve_endpoint(),
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            )
+            self.assertEqual(provider._resolve_api_key(), "gem-test-key")
+
 
 if __name__ == "__main__":
     unittest.main()
