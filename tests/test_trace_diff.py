@@ -139,3 +139,83 @@ def test_diff_report_markdown_and_json_serialization():
     assert "`MATCH_EXACT`" in md
     assert "`PARITY_PASS`" in md
     assert parsed["outcome_classification"] == "PARITY_PASS"
+
+
+def test_diff_empty_traces_not_marked_match_exact():
+    baseline = _make_trace("gemini/gemini-3.5-flash", [], sandbox_passed=False)
+    candidate = _make_trace("npu/qwen3-4b-instruct-2507", [], sandbox_passed=False)
+
+    report = diff_hierarchy_traces(baseline, candidate)
+    assert report.divergence_kind == "EMPTY_TRACE"
+    assert report.normalized_similarity == 0.0
+
+
+def test_extract_candidate_python_code_nested_braces_and_dict_literal():
+    nested_code = "def ok():\n    return {'status': 'ok'}\n"
+    json_payload = json.dumps(
+        {
+            "source_file": "fixtures/legacy_invoice_batch.pl",
+            "success": True,
+            "final_code": nested_code,
+        }
+    )
+    assert extract_candidate_python_code(f"Summary:\n{json_payload}") == nested_code.strip()
+
+    dict_str = str({"source_file": "x.pl", "final_code": nested_code})
+    assert extract_candidate_python_code(dict_str) == nested_code.strip()
+
+
+def test_attach_trace_collectors_captures_callback_registry_steps():
+    from smolagents import tool
+    from smolagents.models import ChatMessage, MessageRole, Model
+    from core.smol_hierarchy import LedgerCodeAgent
+    from core.trace_diff import _attach_trace_collectors
+
+    @tool
+    def extract_static_dependency_graph(file_path: str) -> str:
+        """Mock graph tool.
+
+        Args:
+            file_path: path
+        """
+        return "{}"
+
+    class _DummyModel(Model):
+        def __init__(self) -> None:
+            super().__init__(model_id="dummy")
+            self.step = 0
+
+        def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
+            self.step += 1
+            if self.step == 1:
+                return ChatMessage(
+                    role=MessageRole.ASSISTANT,
+                    content='Thought: call tool\n<code>\nres = extract_static_dependency_graph(file_path="a.pl")\n</code>',
+                )
+            return ChatMessage(
+                role=MessageRole.ASSISTANT,
+                content='Thought: finish\n<code>\nfinal_answer("done")\n</code>',
+            )
+
+    agent = LedgerCodeAgent(
+        tools=[extract_static_dependency_graph],
+        model=_DummyModel(),
+        name="spaghettilens_supervisor",
+    )
+    tiers = _attach_trace_collectors(agent, registered_names=("extract_static_dependency_graph",))
+    agent.run("test")
+
+    assert tiers["spaghettilens_supervisor"].flattened_calls == ["extract_static_dependency_graph"]
+    assert tiers["spaghettilens_supervisor"].step_topology == [["extract_static_dependency_graph"], []]
+
+
+def test_diff_report_renders_baseline_gate_errors():
+    baseline = _make_trace(
+        "gemini/gemini-3.5-flash",
+        [["discovery_lead"]],
+        sandbox_passed=False,
+        sandbox_errors=["RUNTIME_VIOLATION: stub only"],
+    )
+    candidate = _make_trace("npu/qwen3-4b-instruct-2507", [["discovery_lead"]], sandbox_passed=True)
+    md = diff_hierarchy_traces(baseline, candidate).to_markdown()
+    assert "**Baseline Gate Errors:** `['RUNTIME_VIOLATION: stub only']`" in md

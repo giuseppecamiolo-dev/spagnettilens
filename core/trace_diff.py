@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 import time
@@ -18,6 +19,7 @@ DivergenceKind = Literal[
     "MATCH_EXACT",
     "MATCH_TOPOLOGY_VARIANT",
     "ROUTE_DIVERGENCE",
+    "EMPTY_TRACE",
 ]
 
 OutcomeClassification = Literal[
@@ -147,6 +149,8 @@ class TraceDiffReport:
             lines.append(f"- **Calls Omitted by Candidate:** `{self.missing_in_candidate}`")
         if self.extra_in_candidate:
             lines.append(f"- **Extra Calls by Candidate:** `{self.extra_in_candidate}`")
+        if self.baseline_gate_errors:
+            lines.append(f"- **Baseline Gate Errors:** `{self.baseline_gate_errors}`")
         if self.candidate_gate_errors:
             lines.append(f"- **Candidate Gate Errors:** `{self.candidate_gate_errors}`")
         return "\n".join(lines)
@@ -180,18 +184,34 @@ def extract_candidate_python_code(raw_output: str) -> str:
     if not text:
         return ""
 
-    # Check if StranglerAgent JSON report is embedded in the hierarchy output
-    for match in re.finditer(r'\{\s*"source_file"\s*:.*?"final_code"\s*:.*?\}', text, re.DOTALL):
+    # 1. Parse embedded JSON objects (handles nested braces inside final_code)
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
         try:
-            payload = json.loads(match.group(0))
+            payload, _ = decoder.raw_decode(text, match.start())
             if isinstance(payload, dict) and payload.get("final_code"):
                 return str(payload["final_code"]).strip()
         except json.JSONDecodeError:
+            continue
+
+    # 2. Handle Python dict literal string (e.g. str(dict) returned by an agent)
+    if text.startswith("{") and "final_code" in text:
+        try:
+            payload = ast.literal_eval(text)
+            if isinstance(payload, dict) and payload.get("final_code"):
+                return str(payload["final_code"]).strip()
+        except (ValueError, SyntaxError):
             pass
 
-    fence_match = PYTHON_BLOCK_RE.search(text)
-    if fence_match:
-        return fence_match.group(1).strip()
+    # 3. Extract markdown python/bare code fences (longest match)
+    matches = PYTHON_BLOCK_RE.findall(text)
+    if matches:
+        return max(matches, key=len).strip()
+
+    # 4. Extract <code>...</code> blocks if leaked from CodeAgent output
+    code_tags = re.findall(r"<code>(.*?)</code>", text, re.DOTALL | re.IGNORECASE)
+    if code_tags:
+        return max(code_tags, key=len).strip()
 
     return text
 
@@ -214,11 +234,11 @@ def _attach_trace_collectors(
         tier_trace = AgentTierTrace(agent_name=name)
         tiers[name] = tier_trace
 
-        callbacks = getattr(agent, "step_callbacks", None)
-        if isinstance(callbacks, dict):
-            prev_cb = callbacks.get(ActionStep)
-
-            def _trace_cb(step: ActionStep, ag: CodeAgent, _t: AgentTierTrace = tier_trace, _prev: Any = prev_cb) -> None:
+        def _make_trace_cb(
+            _t: AgentTierTrace = tier_trace,
+            _prev: Any = None,
+        ) -> Callable[..., None]:
+            def _trace_cb(step: ActionStep, *cb_args: Any, **cb_kwargs: Any) -> None:
                 code_action = getattr(step, "code_action", None) or ""
                 obs = str(getattr(step, "observations", None) or "")
                 if "Skipped duplicate tool call(s)" in obs:
@@ -234,9 +254,16 @@ def _attach_trace_collectors(
                     _t.step_errors.append(str(err))
 
                 if callable(_prev):
-                    _prev(step, ag)
+                    _prev(step, *cb_args, **cb_kwargs)
 
-            callbacks[ActionStep] = _trace_cb
+            return _trace_cb
+
+        callbacks = getattr(agent, "step_callbacks", None)
+        if hasattr(callbacks, "register") and callable(callbacks.register):
+            callbacks.register(ActionStep, _make_trace_cb(tier_trace, None))
+        elif isinstance(callbacks, dict):
+            prev_cb = callbacks.get(ActionStep)
+            callbacks[ActionStep] = _make_trace_cb(tier_trace, prev_cb)
 
         for sub in (getattr(agent, "managed_agents", None) or {}).values():
             _instrument(sub)
@@ -317,8 +344,11 @@ def diff_hierarchy_traces(
     denom = max(len(b_flat), len(c_flat), 1)
     similarity = max(0.0, 1.0 - (dist / denom))
 
-    if b_flat == c_flat and b_topo == c_topo:
-        div_kind: DivergenceKind = "MATCH_EXACT"
+    if not b_flat and not c_flat:
+        div_kind: DivergenceKind = "EMPTY_TRACE"
+        similarity = 0.0
+    elif b_flat == c_flat and b_topo == c_topo:
+        div_kind = "MATCH_EXACT"
     elif b_flat == c_flat:
         div_kind = "MATCH_TOPOLOGY_VARIANT"
     else:
