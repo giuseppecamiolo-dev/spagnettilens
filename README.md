@@ -18,11 +18,11 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 **SpaghettiLens-AI (`v0.6.0`)** solves this using a **Neuro-Symbolic Strangler-Fig Architecture**:
 
 1. **Deterministic Static Extraction (`core/schema_graph.py`)**: Parses legacy Perl/PHP source files and optional SQL DDL schemas (`--schema`) *before* invoking the LLM. Extracts embedded SQL queries, maps them to table definitions, identifies untrusted HTTP/CGI entry points, and flags security/financial invariants (`LEDGER_INVARIANT`).
-2. **Unified Multi-Provider Inference (`core/providers.py`)**: Streams analysis or refactored code through **Zero-Data-Leakage Local Hardware** (`npu` via `npurun`, `foundry`, `ollama`, `ollama-http`) or **OpenAI-Compatible Cloud SSE APIs** (`meta`, `baseten`, `fireworks`, `modal`, `openai`).
-3. **Deterministic Verification Sandbox (`core/sandbox_runner.py`)**: Validates generated Python/FastAPI code via AST parsing (`ast.parse`), bytecode compilation, SQL parameterization checks, financial `Decimal` enforcement, and ephemeral SQLite schema execution.
+2. **Unified Multi-Provider Inference (`core/providers.py`)**: Streams analysis or refactored code through **Zero-Data-Leakage Local Hardware** (`npu` via `npurun`, `foundry`, `ollama`, `ollama-http`) or **OpenAI-Compatible Cloud SSE APIs** (`gemini`, `meta`, `baseten`, `fireworks`, `modal`, `openai`).
+3. **Deterministic Verification Sandbox (`core/sandbox_runner.py`)**: Validates generated Python/FastAPI code via AST parsing (`ast.parse`), Gate 4 non-trivial callable & bytecode compilation checks, SQL parameterization checks, financial `Decimal` enforcement, and ephemeral SQLite schema execution.
 4. **Autonomous Self-Healing Agent (`core/strangler_agent.py`)**: Orchestrates multi-turn refactoring (`--agent`) that automatically feeds deterministic sandbox failures back into the LLM until all syntax, security, and financial invariants pass.
-5. **3-Level `smolagents` Hierarchy & Out-of-Window `CallLedger` (`core/smol_hierarchy.py`, `core/call_ledger.py`)**: Implements a multi-tier `LedgerCodeAgent` hierarchy (`--smolagents`) with custom NPU-optimized Jinja2 prompt templates, sliding-window call-inventory digests, pre-execution duplicate-call interception, and AST-level `<code>...</code>` sanitization so compact 4B local NPU models execute deterministic multi-agent pipelines within a 4,096-token ceiling.
-6. **Automated Same-Input Trace Diffing (`core/trace_diff.py`, `cli/bench.py`)**: Runs identical legacy fixtures across a frontier baseline and a local/edge candidate, comparing both per-step topologies and flattened AST call sequences (Levenshtein distance) alongside the 4-gate sandbox oracle.
+5. **3-Level `smolagents` Hierarchy & Out-of-Window `CallLedger` (`core/smol_hierarchy.py`, `core/call_ledger.py`)**: Implements a multi-tier `LedgerCodeAgent` hierarchy (`--smolagents`) with custom NPU-optimized Jinja2 prompt templates, sliding-window call-inventory digests, `_GuardedPythonExecutor` pre-execution duplicate-call interception (`CodeOutput` short-circuiting while preserving `send_variables`/`send_tools`), and AST-level `<code>...</code>` sanitization (including `additional*_args=` keyword typo repair) so compact 4B local NPU models execute deterministic multi-agent pipelines within a 4,096-token ceiling.
+6. **Automated Same-Input Trace Diffing (`core/trace_diff.py`, `cli/bench.py`)**: Runs identical legacy fixtures across a frontier baseline and a local/edge candidate using `CallbackRegistry`-aware step instrumentation, comparing both per-step topologies and flattened AST call sequences (Levenshtein distance with `EMPTY_TRACE` detection) alongside the 4-gate sandbox oracle (reporting both baseline and candidate gate errors).
 
 ---
 
@@ -50,7 +50,7 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 |       2. Self-Healing Strangler Agent, CallLedger & LLM Providers       |
 |       (core/strangler_agent.py, core/call_ledger.py, providers.py)      |
 |  • Local Zero-Leakage: Snapdragon NPU (npurun), Foundry, Ollama         |
-|  • Cloud SSE APIs: Meta, Baseten, Fireworks, Modal, OpenAI              |
+|  • Cloud SSE APIs: Gemini, Meta, Baseten, Fireworks, Modal, OpenAI      |
 |  • Out-of-window AST CallLedger prevents duplicate NPU tool loops       |
 +------------------------------------+------------------------------------+
                                      |
@@ -58,7 +58,7 @@ Modernizing legacy enterprise systems—especially 15-to-20-year-old **Perl CGI/
 +-------------------------------------------------------------------------+
 |                 3. Deterministic Verification Sandbox                   |
 |                         (core/sandbox_runner.py)                        |
-|  • AST Syntax & Bytecode Compilation Check                              |
+|  • AST Syntax, Non-Trivial Callable & Bytecode Compilation Check        |
 |  • Zero-SQLi Parameterization & Credential Environment Enforcement      |
 |  • LEDGER_INVARIANT (`decimal.Decimal`) Verification + Ephemeral SQLite |
 |  * If checks fail -> Feeds structured error report back to Agent        |
@@ -131,13 +131,13 @@ python3 spaghettilens.py fixtures/spaghettiCode.php \
 
 ### 2. Automated Same-Input Trace Diffing CLI (`cli/bench.py`)
 
-Compare a frontier baseline against a local NPU/edge candidate on identical fixtures—scoring both AST call-inventory sequences and 4-gate sandbox verdicts:
+Compare a frontier baseline (`gemini/gemini-3.8-flash` with `GEMINI_API_KEY`, or `openai/gpt-4o` with `OPENAI_API_KEY`) against a local NPU/edge candidate on identical fixtures—scoring both AST call-inventory sequences and 4-gate sandbox verdicts:
 
 ```bash
 python3 -m cli.bench \
   --fixture fixtures/legacy_invoice_batch.pl \
   --schema fixtures/schema.sql \
-  --baseline openai/gpt-4o \
+  --baseline gemini/gemini-3.8-flash \
   --candidate npu/qwen3-4b-instruct-2507 \
   --diff \
   --out reports/invoice_trace_diff.md
@@ -186,7 +186,7 @@ python3 benchmarks/run_eval.py --mode dry-run --runs 10 --seed 42
 
 ## 🧪 Automated Test Suite & CI
 
-Run the full offline unit test suite (**62 tests** covering local/cloud providers, static schema graph extraction, sandbox verification, self-healing agent loops, out-of-window CallLedger deduplication, AST trace diffing, and the 3-level smolagents hierarchy):
+Run the full offline unit test suite (**70 tests** covering local/cloud providers, static schema graph extraction, sandbox verification, self-healing agent loops, out-of-window CallLedger deduplication, AST trace diffing, and the 3-level smolagents hierarchy):
 
 ```bash
 python3 -m pytest -v
@@ -261,7 +261,7 @@ In **SpaghettiLens-AI (`v0.6.0`)**, we use a compact **4B parameter model (`qwen
 
 5. **AST-Level `<code>` Sanitization & Deterministic Sandboxing:**
   * *The Problem:* Small models occasionally leak markdown fences or trailing prose inside Python execution blocks.
-  * *The Fix:* Strict AST-level `<code>` sanitization (`ast.parse`) paired with `SandboxRunner` (SQLite + FastAPI verification) guarantees that every inter-agent handoff and refactored endpoint is syntactically and functionally verified in a single iteration.
+  * *The Fix:* Strict AST-level `<code>` sanitization (`ast.parse`, plus automatic repair of small-model keyword typos such as `additional*_args=` $\rightarrow$ `additional_args=`) paired with `SandboxRunner` (SQLite + non-trivial callable & `py_compile` verification) guarantees that every inter-agent handoff and refactored endpoint is syntactically and functionally verified in a single iteration.
 
 ### Why This Scales Up to Frontier Models
 
